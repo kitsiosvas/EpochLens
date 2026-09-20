@@ -2,7 +2,7 @@
 
 First-look figures for **labeled EEG epochs**.
 
-The goal is stunning, honest graphs of the signals — class-mean waveforms, time–frequency, scalp, and covariance geometry — so you can see whether a contrast is in the recording. Algorithms take generic epochs `(trials × channels × time)`. Class names come from the file: song A vs B, left vs right, any labels you epoch. The core does not know about named public datasets.
+Algorithms take generic epochs `(trials × channels × time)`. Class names come from the file (song A vs B, left vs right, anything you epoch). The core does not know about named public datasets.
 
 ## Goal
 
@@ -11,16 +11,17 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 ## What it plots
 
 - Class-mean waveforms (baseline z-scored) ± SEM
-- Class-mean spectra in the analysis window
-- Batched CWT scalograms
-- Band-power topography
-- Pairwise discriminability maps (Wilcoxon / t-test)
-- Channel ranking (table + JSON sidecar)
-- Log-Euclidean / Riemannian trial embeddings (including session whitening)
-- Streamlit app (default) and optional HTML snapshot
-- Optional MNE epochs FIF loader
+- Class-mean spectra in the analysis window (log power)
+- Batched Morlet CWT scalograms (power = `|coeff|²`)
+- Band-power topography (θ / α / β / γ)
+- Pairwise discriminability maps (Mann–Whitney |z|; README shorthand Wilcoxon)
+- Channel ranking (table + JSON sidecar on HTML export)
+- Log-Euclidean / Riemannian trial embeddings, including session whitening
+- Optional cross-validated log-Euclid LDA vs chance (sanity check, not a BCI)
 
-A cross-validated LDA check against chance can appear in the report. That number is a sanity check on covariance geometry, not a product feature and not a BCI.
+Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
+
+Streamlit views: Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance.
 
 ## What it is not
 
@@ -32,15 +33,18 @@ A cross-validated LDA check against chance can appear in the report. That number
 
 ## Install
 
+Python 3.10+. From the repo root:
+
 ```text
-python -m pip install -U pip
-pip install -e ".[dev]"
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -U pip
+.\.venv\Scripts\python.exe -m pip install -e ".[all]"
 ```
 
-On older pip, run tests from the tree (`pythonpath = src` is set in `pyproject.toml`):
+`[dev]` is enough for Streamlit, Plotly, matplotlib, and tests. Add `[fif]` (or use `[all]`) for MNE `*-epo.fif`. `.venv/` is gitignored.
 
 ```text
-python -m pytest tests
+.\.venv\Scripts\python.exe -m pytest tests
 ```
 
 ## Explorer
@@ -48,37 +52,48 @@ python -m pytest tests
 Streamlit is the app. Synthetic demo loads with no file:
 
 ```text
-python -m eegvis.explorer
+.\.venv\Scripts\python.exe -m eegvis.explorer
 ```
+
+(`eegvis-explorer` is the same entry point.)
 
 Any already-epoched experiment (music listening, motor imagery, ERP, speech, …) as MNE FIF or eegvis NPZ. Upload in the sidebar, or pass a path:
 
 ```text
-python -m eegvis.explorer --fif path/to/epochs-epo.fif
-python -m eegvis.explorer --npz path/to/epochs.npz
+.\.venv\Scripts\python.exe -m eegvis.explorer --fif path/to/epochs-epo.fif
+.\.venv\Scripts\python.exe -m eegvis.explorer --npz path/to/epochs.npz
 ```
 
 Class labels come from MNE `event_id` or the NPZ sidecar. Epoch in MNE first if you have continuous recordings. eegvis does not cut raw data.
 
-Optional static HTML snapshot (also available as Export in the sidebar):
+Optional static HTML snapshot (also **Export** in the Streamlit sidebar):
 
 ```text
-python -m eegvis.explorer --html --out report.html --open
-python -m eegvis.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
+.\.venv\Scripts\python.exe -m eegvis.explorer --html --out report.html --open
+.\.venv\Scripts\python.exe -m eegvis.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
 ```
 
-Add `--full` on the HTML path for per-class CWT and extra topomaps.
+`--full` on the HTML path adds per-class CWT and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders.
 
 ## Core
 
 ```python
 from eegvis import EpochBatch, write_html
+from eegvis.adapters.npz import save_epochs, load_epochs
 from eegvis.cwt import cwt_power, mean_cwt_power
 from eegvis.discriminability import pairwise_maps
 from eegvis.ranking import score_channels, top_channels
 from eegvis.riemann import trial_covariances, session_whiten, embed_mds
 
 write_html(batch, "report.html", window=(0.5, 2.0), baseline=(0.0, 0.4))
+```
+
+FIF (needs MNE):
+
+```python
+from eegvis.adapters.fif import load_epochs_fif
+
+batch = load_epochs_fif("path/to/epochs-epo.fif")
 ```
 
 Time windows, sampling rate, and montage are arguments. Nothing BioSemi- or experiment-specific belongs in the math.
@@ -89,7 +104,7 @@ Time windows, sampling rate, and montage are arguments. Nothing BioSemi- or expe
 | --- | --- |
 | `src/eegvis/` | Figure-facing algorithms |
 | `src/eegvis/adapters/synthetic.py` | Built-in demo EEG |
-| `src/eegvis/adapters/npz.py` | Save/load generic epochs |
+| `src/eegvis/adapters/npz.py` | Save/load generic epochs (no MNE) |
 | `src/eegvis/adapters/fif.py` | Any MNE `*-epo.fif` |
 | `src/eegvis/explorer/` | Streamlit app + HTML export |
 
