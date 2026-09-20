@@ -51,6 +51,7 @@ REPORT_CSS = """
             border: 1px dashed var(--rule); color: #4a4338; font-size: 0.9rem; }
     .math p { margin: 0 0 0.45rem; }
     .math .eq { margin: 0.35rem 0 0; overflow-x: auto; }
+    .math .eq img { width: auto; max-width: 100%; height: auto; background: transparent; display: block; margin: 0 auto; }
 """
 
 

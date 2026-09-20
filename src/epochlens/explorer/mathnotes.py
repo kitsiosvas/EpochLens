@@ -2,8 +2,22 @@
 
 from __future__ import annotations
 
+import base64
 import html
 from dataclasses import dataclass
+from io import BytesIO
+
+# Longest first so \\lVert is not eaten by \\lvert.
+_MATHTEXT_SUBS: tuple[tuple[str, str], ...] = (
+    (r"\lVert", r"\|"),
+    (r"\rVert", r"\|"),
+    (r"\lvert", r"|"),
+    (r"\rvert", r"|"),
+    (r"\Bigl", ""),
+    (r"\Bigr", ""),
+    (r"\bigl", ""),
+    (r"\bigr", ""),
+)
 
 
 @dataclass(frozen=True)
@@ -32,7 +46,7 @@ NOTES: dict[str, MathNote] = {
             "The y-axis is logarithmic."
         ),
         equations=(
-            r"w_t=\tfrac12\bigl(1-\cos\tfrac{2\pi t}{T-1}\bigr)",
+            r"w_t=\frac{1}{2}\bigl(1-\cos\frac{2\pi t}{T-1}\bigr)",
             r"P(f)=\Bigl|\sum_{t=0}^{T-1} w_t\, x_t\, e^{-2\pi i f t/f_s}\Bigr|^2",
         ),
     ),
@@ -45,7 +59,7 @@ NOTES: dict[str, MathNote] = {
         equations=(
             r"\sigma_t=\frac{n_{\mathrm{cyc}}}{2\pi f},\quad \sigma_f=\frac{1}{2\pi\sigma_t}",
             r"\Psi_f(\xi)\propto\sqrt{2\sigma_t}\,"
-            r"\exp\Bigl(-\tfrac12\bigl((\xi-f)/\sigma_f\bigr)^2\Bigr)",
+            r"\exp\Bigl(-\frac{1}{2}\bigl((\xi-f)/\sigma_f\bigr)^2\Bigr)",
             r"S(f,t)=|W(f,t)|^2,\quad "
             r"R=\frac{S-\langle S\rangle_{\mathrm{base}}}{\langle S\rangle_{\mathrm{base}}}",
         ),
@@ -104,7 +118,7 @@ NOTES: dict[str, MathNote] = {
         equations=(
             r"C_i=\frac{X_i X_i^\top}{T\,\mathrm{tr}(X_i X_i^\top/T)}+\lambda I",
             r"d(A,B)=\lVert\log A-\log B\rVert_F",
-            r"B=-\tfrac12 H\,D^{\circ 2}\,H,\quad "
+            r"B=-\frac{1}{2} H\,D^{\circ 2}\,H,\quad "
             r"Y=V_{1:2}\,\mathrm{diag}(\sqrt{\lambda_{1:2}})",
             r"C\leftarrow R^{-1/2} C R^{-1/2}",
         ),
@@ -125,10 +139,48 @@ NOTES: dict[str, MathNote] = {
 }
 
 
+def mathtext_safe(eq: str) -> str:
+    """Map display LaTeX to matplotlib mathtext."""
+    out = eq
+    for src, dst in _MATHTEXT_SUBS:
+        out = out.replace(src, dst)
+    return out
+
+
+def equation_png(eq: str) -> str:
+    """Render one display equation to a PNG data-URL payload (no CDN)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(7.6, 0.52))
+    fig.patch.set_facecolor("#f7f1e6")
+    ax = fig.add_axes([0.0, 0.0, 1.0, 1.0])
+    ax.set_axis_off()
+    ax.text(
+        0.5,
+        0.5,
+        f"${mathtext_safe(eq)}$",
+        ha="center",
+        va="center",
+        fontsize=12,
+        color="#1C1917",
+    )
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor=fig.get_facecolor(), pad_inches=0.06)
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def html_block(key: str) -> str:
     note = NOTES[key]
-    eqs = "".join(f"<p class=\"eq\">\\[{eq}\\]</p>" for eq in note.equations)
-    return f"<div class=\"math\"><p>{html.escape(note.summary)}</p>{eqs}</div>"
+    eqs = "".join(
+        f'<p class="eq"><img alt="" src="data:image/png;base64,{equation_png(eq)}"/></p>'
+        for eq in note.equations
+    )
+    summary = html.escape(note.summary.replace("$", ""))
+    return f"<div class=\"math\"><p>{summary}</p>{eqs}</div>"
 
 
 def show_math(st, key: str) -> None:

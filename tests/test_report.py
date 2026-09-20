@@ -48,9 +48,11 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     assert "visualization subset" in low
     assert "waveforms / cwt / spectra" in low
     assert "mds uses the full montage" in low
-    assert "mathjax" in low
-    assert "\\mathrm{SEM}" in html
-    assert "\\[" in html
+    assert "mathjax" not in low
+    assert "jsdelivr" not in low
+    assert "tex-chtml" not in low
+    assert "\\mathrm{SEM}" not in html
+    assert html.count("<div class=\"math\">") >= 4
     assert "data:image/png;base64," in html
     assert html.count("<img ") >= 5
     path = write_report(html, tmp_path / "report.html")
