@@ -26,7 +26,7 @@ from epochlens.explorer.style import (
     WINDOW_FILL,
     apply_matplotlib_rc,
 )
-from epochlens.ranking import prepare_ranking, top_channels
+from epochlens.ranking import prepare_ranking, session_channel_votes, top_channels
 from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
 from epochlens.topo import can_draw_scalp, interpolate_topo, located_mask
 from epochlens.waveforms import class_mean_sem
@@ -683,6 +683,16 @@ def render_report(
                 "ranking",
             )
         )
+        votes = session_channel_votes(batch, window, baseline, top_k)
+        if votes is not None:
+            sections.append(
+                (
+                    "Session votes for the visualization subset",
+                    _png(_stem_figure(votes.astype(float), batch.ch_names)),
+                    "How often each channel is in the top-k when ranking is computed per session. Sessions are not subjects.",
+                    "ranking",
+                )
+            )
         if full and draw_scalp:
             vis_scores = np.nan_to_num(scores, neginf=0.0)
             sections.append(
@@ -713,10 +723,32 @@ def render_report(
                 (
                     "Session-whitened MDS",
                     _png(_mds_figure(xy1, batch.labels, batch.sessions, batch.class_names)),
-                    "Same full-montage embedding after per-session whitening. Session structure should recede if class geometry remains.",
+                    "Same full-montage embedding after per-session log-Euclidean whitening. Session structure should recede if class geometry remains.",
                     "mds",
                 )
             )
+        if full:
+            xy_r = embed_mds(pairwise_distances(covs, metric="riemann"))
+            sections.append(
+                (
+                    "Affine-invariant Riemannian MDS",
+                    _png(_mds_figure(xy_r, batch.labels, batch.sessions, batch.class_names)),
+                    "Same full-montage embedding with the SPD geodesic (slower). Compare class clusters to the log-Euclidean plot.",
+                    "mds",
+                )
+            )
+            if n_ses >= 2:
+                xy_rw = embed_mds(
+                    pairwise_distances(session_whiten(covs, batch.sessions, metric="riemann"), metric="riemann")
+                )
+                sections.append(
+                    (
+                        "Session-whitened affine-invariant MDS",
+                        _png(_mds_figure(xy_rw, batch.labels, batch.sessions, batch.class_names)),
+                        "Affine-invariant embedding after per-session Riemannian whitening.",
+                        "mds",
+                    )
+                )
         try:
             chance = logeuclid_lda_cv(batch, window)
             acc = f"{100 * chance.accuracy:.1f}%"

@@ -27,7 +27,7 @@ from epochlens.explorer.plots import (
     scalp_scatter,
 )
 from epochlens.explorer.report import DECODE_NOTE, HONESTY, render_report
-from epochlens.ranking import prepare_ranking, top_channels
+from epochlens.ranking import prepare_ranking, session_channel_votes, top_channels
 from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
 from epochlens.explorer.summary import dataset_facts
 from epochlens.topo import can_draw_scalp
@@ -349,22 +349,47 @@ def render() -> None:
             )
         st.caption("Highlighted sensors are the visualization subset (waveforms / CWT / spectra).")
         st.write("Top channels:", ", ".join(batch.ch_names[i] for i in picks))
+        votes = session_channel_votes(batch, window, baseline, k)
+        if votes is not None:
+            st.plotly_chart(
+                channel_stem(votes.astype(float), batch.ch_names, "Session votes for the visualization subset"),
+                width="stretch",
+            )
+            st.caption(
+                "How often each channel is in the top-k when ranking is computed per session. "
+                "Sessions are not subjects."
+            )
         show_math(st, "ranking")
 
     elif view == "MDS":
         if batch.labels is None:
             st.warning("No class labels on this batch.")
         else:
+            metric_label = st.radio(
+                "Distance",
+                ["log-Euclidean", "affine-invariant Riemann"],
+                horizontal=True,
+                help="Affine-invariant is the SPD geodesic and slower. Both use the full montage.",
+            )
+            metric = "logeuclid" if metric_label.startswith("log") else "riemann"
             covs = trial_covariances(batch, window)
-            xy0 = embed_mds(pairwise_distances(covs, metric="logeuclid"))
+            with st.spinner("Embedding trial covariances…"):
+                xy0 = embed_mds(pairwise_distances(covs, metric=metric))
             st.plotly_chart(
-                mds_scatter(xy0, batch.labels, batch.sessions, batch.class_names, "Log-Euclidean MDS (all channels)"),
+                mds_scatter(
+                    xy0,
+                    batch.labels,
+                    batch.sessions,
+                    batch.class_names,
+                    f"{metric_label} MDS (all channels)",
+                ),
                 width="stretch",
             )
             n_ses = 0 if batch.sessions is None else int(np.unique(batch.sessions).size)
             if n_ses >= 2:
-                whitened = session_whiten(covs, batch.sessions, metric="logeuclid")
-                xy1 = embed_mds(pairwise_distances(whitened, metric="logeuclid"))
+                with st.spinner("Session whitening…"):
+                    whitened = session_whiten(covs, batch.sessions, metric=metric)
+                    xy1 = embed_mds(pairwise_distances(whitened, metric=metric))
                 st.plotly_chart(
                     mds_scatter(
                         xy1,
@@ -375,7 +400,11 @@ def render() -> None:
                     ),
                     width="stretch",
                 )
-            st.caption("Covariance geometry uses the full montage (all channels). Ranked-channel selection is not used.")
+            st.caption(
+                "Covariance geometry uses the full montage (all channels). "
+                "Ranked-channel selection is not used. "
+                "Affine-invariant Riemann is the geodesic on SPD matrices; log-Euclidean is the faster default."
+            )
             show_math(st, "mds")
 
     else:

@@ -31,3 +31,17 @@ def test_vote_channels():
     assert votes[0] == 2
     assert votes[1] == 1
     assert votes[4] == 0
+
+
+def test_session_channel_votes_needs_two_sessions():
+    from epochlens.ranking import session_channel_votes
+
+    batch = make_synthetic(n_channels=8, trials_per_class=10, seed=3)
+    votes = session_channel_votes(batch, (0.6, 1.4), (0.0, 0.4), 3)
+    assert votes is not None
+    assert votes.shape == (batch.n_channels,)
+    assert int(votes.sum()) >= 2 * 3
+    assert votes.max() >= 2
+
+    one = batch.copy_with(sessions=np.ones(batch.n_trials, dtype=int))
+    assert session_channel_votes(one, (0.6, 1.4), (0.0, 0.4), 3) is None

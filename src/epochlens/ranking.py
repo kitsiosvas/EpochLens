@@ -1,4 +1,4 @@
-"""Channel scores from maps, plus cross-subject voting."""
+"""Channel scores from maps, plus session / subject voting."""
 
 from __future__ import annotations
 
@@ -80,10 +80,30 @@ def prepare_ranking(
 
 
 def vote_channels(top_index_lists: list[np.ndarray], n_channels: int) -> np.ndarray:
-    """Histogram of how often each channel appears in a subject's top set."""
+    """Histogram of how often each channel appears in a group's top set."""
     votes = np.zeros(n_channels, dtype=np.int64)
     for picks in top_index_lists:
         idx = np.asarray(picks, dtype=int)
         idx = idx[(idx >= 0) & (idx < n_channels)]
         votes[idx] += 1
     return votes
+
+
+def session_channel_votes(batch, window: tuple[float, float], baseline: tuple[float, float], top_k: int):
+    """Per-session top-k votes. ``None`` unless at least two sessions can be ranked."""
+    if batch.sessions is None:
+        return None
+    ids = np.unique(batch.sessions)
+    if ids.size < 2:
+        return None
+    picks_list: list[np.ndarray] = []
+    for sid in ids:
+        sub = batch.subset_trials(batch.sessions == sid)
+        if sub.n_trials < 2:
+            continue
+        _, _, picks, *_rest = prepare_ranking(sub, window, baseline, top_k)
+        if picks.size:
+            picks_list.append(picks)
+    if len(picks_list) < 2:
+        return None
+    return vote_channels(picks_list, batch.n_channels)

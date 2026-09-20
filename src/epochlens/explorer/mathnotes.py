@@ -111,13 +111,15 @@ NOTES: dict[str, MathNote] = {
     "mds": MathNote(
         summary=(
             "Each trial is a trace-normalized covariance of the analysis window "
-            "(all channels), with a small ridge. Distances are log-Euclidean: "
-            "Frobenius distance of matrix logarithms. Points are classical MDS. "
-            "Session whitening removes the per-session log-Euclidean mean."
+            "(all channels), with a small ridge. Distances are log-Euclidean "
+            "(Frobenius of matrix logs) or affine-invariant Riemannian "
+            "(generalized eigenvalues). Points are classical MDS. "
+            "Session whitening removes the per-session mean in the chosen metric."
         ),
         equations=(
             r"C_i=\frac{X_i X_i^\top}{T\,\mathrm{tr}(X_i X_i^\top/T)}+\lambda I",
-            r"d(A,B)=\lVert\log A-\log B\rVert_F",
+            r"d_{\mathrm{log}}(A,B)=\lVert\log A-\log B\rVert_F",
+            r"d_{\mathrm{R}}(A,B)=\bigl(\sum_k \log^2\lambda_k(A,B)\bigr)^{1/2}",
             r"B=-\frac{1}{2} H\,D^{\circ 2}\,H,\quad "
             r"Y=V_{1:2}\,\mathrm{diag}(\sqrt{\lambda_{1:2}})",
             r"C\leftarrow R^{-1/2} C R^{-1/2}",

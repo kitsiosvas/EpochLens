@@ -49,7 +49,7 @@ python -m venv .venv
 
 ## Explorer
 
-Streamlit is the app. Dummy data loads with no file:
+Streamlit is the app. Dummy data loads with no file (1/f background plus a planted class rhythm, not a recording):
 
 ```text
 .\.venv\Scripts\python.exe -m epochlens.explorer
@@ -73,7 +73,7 @@ Optional static HTML snapshot (also **Export** in the Streamlit sidebar):
 .\.venv\Scripts\python.exe -m epochlens.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
 ```
 
-`--full` on the HTML path adds per-class CWT and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders. HTML math is rendered into the snapshot (no network).
+`--full` on the HTML path adds per-class CWT, affine-invariant MDS, and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders. HTML math is rendered into the snapshot (no network).
 
 Two short PhysioNet motor-imagery runs (subject 1, a few MB) can be epoched to FIF with `examples/epoch_eegbci.py`, then loaded like any other epochs file.
 

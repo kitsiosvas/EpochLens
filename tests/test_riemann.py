@@ -27,3 +27,16 @@ def test_session_whiten_runs():
     covs = trial_covariances(batch, (0.5, 1.4))
     out = session_whiten(covs, batch.sessions, metric="logeuclid")
     assert out.shape == covs.shape
+
+
+def test_affine_invariant_distance_and_whiten():
+    batch = make_synthetic(n_channels=4, trials_per_class=4, duration=1.0, seed=8)
+    covs = trial_covariances(batch, (0.5, 0.9))
+    dist = pairwise_distances(covs, metric="riemann")
+    assert dist.shape == (batch.n_trials, batch.n_trials)
+    assert np.allclose(np.diag(dist), 0.0, atol=1e-6)
+    assert np.all(dist >= -1e-9)
+    xy = embed_mds(dist)
+    assert xy.shape == (batch.n_trials, 2)
+    out = session_whiten(covs, batch.sessions, metric="riemann")
+    assert out.shape == covs.shape

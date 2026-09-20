@@ -31,6 +31,9 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     assert "chance" in low
     assert "band-power topography" in low
     assert "session-whitened" in low
+    assert "session votes" in low
+    assert "sessions are not subjects" in low
+    assert "affine-invariant riemannian mds" not in low
     assert "per-class relative cwt" not in low
     assert "per-class relative power versus the baseline" not in low
     assert "all channels" in low or "full montage" in low
@@ -85,6 +88,7 @@ def test_full_report_adds_per_class_cwt_and_extra_topomap(tmp_path: Path):
     low = html.lower()
     assert "per-class relative cwt" in low
     assert "per-class relative power versus the baseline" in low
+    assert "affine-invariant riemannian mds" in low
     assert "discriminability topography" in low
     assert "not a classifier" in low
     assert "not a bci" in low
