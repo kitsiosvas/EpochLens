@@ -29,7 +29,7 @@ class EpochBatch:
     class_names
         Map from class id to display name.
     subject_id, condition, dataset
-        Optional provenance for the explorer. Unused by core math.
+        Optional provenance from a loader (any experiment). Unused by core math.
     """
 
     data: np.ndarray
@@ -78,6 +78,17 @@ class EpochBatch:
             montage_xy=xy,
         )
 
+    def subset_trials(self, index: np.ndarray | list[int]) -> EpochBatch:
+        """Return a copy with a subset of trials."""
+        idx = np.asarray(index)
+        if idx.dtype == bool:
+            if idx.shape != (self.n_trials,):
+                raise ValueError("boolean index must be shape (n_trials,)")
+        else:
+            idx = idx.astype(int)
+        labels = None if self.labels is None else self.labels[idx]
+        sessions = None if self.sessions is None else self.sessions[idx]
+        return self.copy_with(data=self.data[idx], labels=labels, sessions=sessions)
 
     @property
     def n_trials(self) -> int:

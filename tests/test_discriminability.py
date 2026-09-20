@@ -17,6 +17,15 @@ def test_pairwise_maps_rank_planted_channel():
     assert 0 in tops or 1 in tops
 
 
+def test_pairwise_maps_ttest_finite():
+    batch = make_synthetic(n_channels=6, trials_per_class=10, seed=5)
+    mask = time_mask(batch.times, 0.6, 1.4)
+    maps, pairs = pairwise_maps(batch.data[:, :, mask], batch.labels, method="ttest")
+    assert maps.shape[0] == len(pairs)
+    assert np.all(np.isfinite(maps))
+    assert np.all(maps >= 0)
+
+
 def test_vote_channels():
     votes = vote_channels([np.array([0, 1, 2]), np.array([0, 3])], n_channels=5)
     assert votes[0] == 2

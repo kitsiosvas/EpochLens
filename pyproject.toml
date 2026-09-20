@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "eegvis"
 version = "0.1.0"
-description = "EEG visualization: CWT scalograms, discriminability maps, sensor ranking, Riemannian embeddings."
+description = "First-look figures for labeled EEG: waveforms, scalograms, scalp maps, covariance geometry."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "kitsiosvas" }]
-keywords = ["eeg", "visualization", "cwt", "riemannian"]
+keywords = ["eeg", "visualization", "figures", "scalogram", "topography"]
 dependencies = [
   "numpy>=1.24",
   "scipy>=1.11",
@@ -19,10 +19,9 @@ dependencies = [
 
 [project.optional-dependencies]
 explorer = ["streamlit>=1.32", "plotly>=5.18", "matplotlib>=3.7"]
-nieto = ["mne>=1.6"]
-moabb = ["mne>=1.6", "moabb>=1.0"]
-dev = ["pytest>=7.4", "matplotlib>=3.7"]
-all = ["streamlit>=1.32", "plotly>=5.18", "matplotlib>=3.7", "mne>=1.6", "moabb>=1.0", "pytest>=7.4"]
+fif = ["mne>=1.6"]
+dev = ["pytest>=7.4", "matplotlib>=3.7", "plotly>=5.18", "streamlit>=1.32"]
+all = ["streamlit>=1.32", "plotly>=5.18", "matplotlib>=3.7", "mne>=1.6", "pytest>=7.4"]
 
 [project.scripts]
 eegvis-explorer = "eegvis.explorer.cli:main"

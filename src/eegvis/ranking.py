@@ -25,12 +25,58 @@ def score_channels(
     return arr.mean(axis=reduce_axes)
 
 
-def top_channels(scores: np.ndarray, k: int) -> np.ndarray:
-    scores = np.asarray(scores, dtype=np.float64)
-    k = min(int(k), scores.size)
+def top_channels(scores: np.ndarray, k: int, exclude: np.ndarray | None = None) -> np.ndarray:
+    scores = np.asarray(scores, dtype=np.float64).copy()
+    if exclude is not None:
+        ex = np.asarray(exclude)
+        if ex.dtype == bool:
+            scores[ex] = -np.inf
+        else:
+            scores[ex.astype(int)] = -np.inf
+    finite = np.isfinite(scores)
+    k = min(int(k), int(finite.sum()))
     if k <= 0:
         return np.array([], dtype=int)
     return np.argsort(scores)[::-1][:k]
+
+
+def prepare_ranking(
+    batch,
+    window: tuple[float, float],
+    baseline: tuple[float, float],
+    top_k: int,
+    *,
+    time_bins: int = 100,
+):
+    """Z-score, drop bad channels, rank. Returns explorer-ready pieces."""
+    from eegvis.discriminability import aggregate_pairs, pairwise_maps
+    from eegvis.quality import flag_bad_channels
+    from eegvis.waveforms import baseline_zscore, rms_channel_score
+    from eegvis.windows import time_mask
+
+    bad = flag_bad_channels(batch)
+    zbatch = baseline_zscore(batch, baseline)
+    k = min(int(top_k), int((~bad).sum()) or batch.n_channels)
+    if batch.labels is None:
+        scores = rms_channel_score(zbatch, window)
+        scores[bad] = -np.inf
+        picks = top_channels(scores, k)
+        if picks.size == 0:
+            picks = np.arange(min(int(top_k), batch.n_channels))
+        return zbatch, scores, picks, None, None, [], bad
+    idx = np.flatnonzero(time_mask(zbatch.times, window[0], window[1]))
+    if idx.size == 0:
+        raise ValueError("analysis window empty")
+    step = max(1, idx.size // int(time_bins))
+    idx = idx[::step]
+    maps, pairs = pairwise_maps(zbatch.data[:, :, idx], batch.labels, method="wilcoxon")
+    ave = aggregate_pairs(maps, "mean")
+    scores = score_channels(ave)
+    scores[bad] = -np.inf
+    picks = top_channels(scores, k)
+    if picks.size == 0:
+        picks = np.arange(min(int(top_k), batch.n_channels))
+    return zbatch, scores, picks, ave, zbatch.times[idx], pairs, bad
 
 
 def vote_channels(top_index_lists: list[np.ndarray], n_channels: int) -> np.ndarray:

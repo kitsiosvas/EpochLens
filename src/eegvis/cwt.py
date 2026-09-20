@@ -61,7 +61,7 @@ def _cwt_power_array(
     power = np.empty((data.shape[0], data.shape[1], freqs.size, n_out), dtype=np.float64)
     for i in range(freqs.size):
         coeff = np.fft.irfft(spectra * kernels[i], n=n_times, axis=-1)
-        power[:, :, i, :] = np.abs(coeff[..., ::decim])
+        power[:, :, i, :] = np.abs(coeff[..., ::decim]) ** 2
     times = tmin + np.arange(n_times, dtype=np.float64)[::decim] / sfreq
     if times.size > n_out:
         times = times[:n_out]
@@ -106,8 +106,11 @@ def mean_cwt_power(
     """Trial-averaged CWT power ``(n_channels, n_freqs, n_times)``, optionally cached."""
     freqs = frequency_axis(fmin, fmax, voices_per_octave)
     freqs = freqs[freqs < 0.5 * batch.sfreq]
+    if freqs.size == 0:
+        raise ValueError("no frequencies below Nyquist")
     payload = {
         "kind": "mean_cwt",
+        "power": "abs2",
         "data": array_fingerprint(batch.data),
         "sfreq": batch.sfreq,
         "tmin": batch.tmin,

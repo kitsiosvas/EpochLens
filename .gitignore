@@ -17,6 +17,6 @@ venv/
 .coverage
 data/
 eegvis_report.html
-nieto_sub01.html
+eegvis_report.json
 demo_report.html
 .DS_Store

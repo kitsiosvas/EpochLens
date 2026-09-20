@@ -1,4 +1,4 @@
-from eegvis.adapters.synthetic import make_synthetic
 from eegvis.adapters.base import AdapterError
+from eegvis.adapters.synthetic import make_synthetic
 
-__all__ = ["make_synthetic", "AdapterError"]
+__all__ = ["AdapterError", "make_synthetic"]

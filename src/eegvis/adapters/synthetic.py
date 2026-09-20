@@ -7,9 +7,6 @@ import numpy as np
 from eegvis.types import EpochBatch
 
 
-CLASS_NAMES = {0: "up", 1: "down", 2: "right", 3: "left"}
-
-
 def make_synthetic(
     *,
     n_classes: int = 4,
@@ -27,11 +24,11 @@ def make_synthetic(
     data = 0.4 * rng.standard_normal((n_trials, n_channels, n_times))
     labels = np.repeat(np.arange(n_classes), trials_per_class)
     sessions = np.tile(np.array([1, 2, 3]), int(np.ceil(n_trials / 3)))[:n_trials]
+    freqs = 10.0 + 2.0 * np.arange(n_classes)
 
     burst = (times >= 0.6) & (times <= 1.4)
     for cls in range(n_classes):
-        freq = 10.0 + 2.0 * cls
-        wave = np.sin(2 * np.pi * freq * times)
+        wave = np.sin(2 * np.pi * freqs[cls] * times)
         ch = cls % n_channels
         idx = labels == cls
         data[idx, ch] += 2.5 * wave * burst
@@ -49,7 +46,7 @@ def make_synthetic(
         labels=labels,
         sessions=sessions,
         montage_xy=xy,
-        class_names={i: CLASS_NAMES.get(i, str(i)) for i in range(n_classes)},
+        class_names={i: f"{freqs[i]:.0f} Hz" for i in range(n_classes)},
         subject_id="synthetic",
         condition="demo",
         dataset="synthetic",
