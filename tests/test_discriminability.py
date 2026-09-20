@@ -1,9 +1,9 @@
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.discriminability import aggregate_pairs, pairwise_maps
-from eegvis.ranking import score_channels, top_channels, vote_channels
-from eegvis.windows import time_mask
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.discriminability import aggregate_pairs, pairwise_maps
+from epochlens.ranking import score_channels, top_channels, vote_channels
+from epochlens.windows import time_mask
 
 
 def test_pairwise_maps_rank_planted_channel():

@@ -11,7 +11,7 @@ import numpy as np
 
 
 def cache_root() -> Path:
-    return Path(os.environ.get("EEGVIS_CACHE", Path.home() / ".eegvis" / "cache"))
+    return Path(os.environ.get("EPOCHLENS_CACHE", Path.home() / ".epochlens" / "cache"))
 
 
 def _key(payload: dict) -> str:

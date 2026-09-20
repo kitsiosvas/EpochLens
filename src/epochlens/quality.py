@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis.types import EpochBatch
+from epochlens.types import EpochBatch
 
 
 def flag_bad_channels(

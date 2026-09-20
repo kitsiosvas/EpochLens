@@ -9,8 +9,8 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
-from eegvis.riemann import trial_covariances
-from eegvis.types import EpochBatch
+from epochlens.riemann import trial_covariances
+from epochlens.types import EpochBatch
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ def chance_level(n_classes: int) -> float:
 
 
 def _vectorize_logm(covs: np.ndarray) -> np.ndarray:
-    from eegvis.riemann import _logm
+    from epochlens.riemann import _logm
 
     logs = np.stack([_logm(c) for c in covs], axis=0)
     iu = np.triu_indices(covs.shape[1])

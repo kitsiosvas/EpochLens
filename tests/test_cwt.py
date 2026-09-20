@@ -1,7 +1,7 @@
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.cwt import cwt_power, energy_channel_score, mean_scalogram, relative_scalogram
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.cwt import cwt_power, energy_channel_score, mean_scalogram, relative_scalogram
 
 
 def test_cwt_shapes_and_planted_band():

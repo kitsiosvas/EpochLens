@@ -9,13 +9,13 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.bands import band_power, window_spectrum
-from eegvis.cwt import mean_cwt_power, relative_scalogram
-from eegvis.decoding import logeuclid_lda_cv
-from eegvis.discriminability import pairwise_maps
-from eegvis.explorer.mathnotes import show_math
-from eegvis.explorer.plots import (
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.bands import band_power, window_spectrum
+from epochlens.cwt import mean_cwt_power, relative_scalogram
+from epochlens.decoding import logeuclid_lda_cv
+from epochlens.discriminability import pairwise_maps
+from epochlens.explorer.mathnotes import show_math
+from epochlens.explorer.plots import (
     band_topomaps,
     channel_stem,
     class_mean_spectra,
@@ -25,15 +25,15 @@ from eegvis.explorer.plots import (
     scalogram_grid,
     scalp_scatter,
 )
-from eegvis.explorer.report import DECODE_NOTE, HONESTY, render_report
-from eegvis.ranking import prepare_ranking, top_channels
-from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
-from eegvis.explorer.summary import dataset_facts
-from eegvis.waveforms import class_mean_sem
-from eegvis.windows import default_windows
+from epochlens.explorer.report import DECODE_NOTE, HONESTY, render_report
+from epochlens.ranking import prepare_ranking, top_channels
+from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.explorer.summary import dataset_facts
+from epochlens.waveforms import class_mean_sem
+from epochlens.windows import default_windows
 
 
-st.set_page_config(page_title="eegvis", layout="wide")
+st.set_page_config(page_title="EpochLens", layout="wide")
 
 _SOURCE_SYNTH = "Dummy data"
 _SOURCE_FIF = "MNE epochs FIF"
@@ -45,10 +45,10 @@ def _load_batch(source: str, fif: str, npz: str):
     if source == _SOURCE_SYNTH:
         return make_synthetic()
     if source == _SOURCE_FIF:
-        from eegvis.adapters.fif import load_epochs_fif
+        from epochlens.adapters.fif import load_epochs_fif
 
         return load_epochs_fif(fif)
-    from eegvis.adapters.npz import load_epochs
+    from epochlens.adapters.npz import load_epochs
 
     return load_epochs(npz)
 
@@ -69,30 +69,30 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 
 def _default_source() -> str:
-    if os.environ.get("EEGVIS_NPZ", "").strip():
+    if os.environ.get("EPOCHLENS_NPZ", "").strip():
         return _SOURCE_NPZ
-    if os.environ.get("EEGVIS_FIF", "").strip():
+    if os.environ.get("EPOCHLENS_FIF", "").strip():
         return _SOURCE_FIF
     return _SOURCE_SYNTH
 
 
 def _save_upload(upload, suffix: str) -> str:
-    folder = Path(st.session_state.setdefault("_eegvis_uploads", tempfile.mkdtemp(prefix="eegvis_")))
+    folder = Path(st.session_state.setdefault("_epochlens_uploads", tempfile.mkdtemp(prefix="epochlens_")))
     dest = folder / f"epochs{suffix}"
     dest.write_bytes(upload.getbuffer())
     return str(dest)
 
 
 def render() -> None:
-    st.title("eegvis")
+    st.title("EpochLens")
     st.caption("Look at labeled EEG epochs. Classes come from the recording. HTML export is a snapshot, not the app.")
 
     with st.sidebar:
         st.header("Data")
         choices = [_SOURCE_SYNTH, _SOURCE_FIF, _SOURCE_NPZ]
         source = st.selectbox("Source", choices, index=choices.index(_default_source()))
-        fif = os.environ.get("EEGVIS_FIF", "").strip()
-        npz = os.environ.get("EEGVIS_NPZ", "").strip()
+        fif = os.environ.get("EPOCHLENS_FIF", "").strip()
+        npz = os.environ.get("EPOCHLENS_NPZ", "").strip()
         if source == _SOURCE_FIF:
             up = st.file_uploader("Upload *-epo.fif", type=["fif"])
             fif = st.text_input(
@@ -104,7 +104,7 @@ def render() -> None:
                 fif = _save_upload(up, "-epo.fif")
         elif source == _SOURCE_NPZ:
             up = st.file_uploader("Upload epochs NPZ", type=["npz"])
-            npz = st.text_input("or path on disk", value=npz, help="eegvis NPZ from any experiment.")
+            npz = st.text_input("or path on disk", value=npz, help="EpochLens NPZ from any experiment.")
             if up is not None:
                 npz = _save_upload(up, ".npz")
 
@@ -386,11 +386,11 @@ def render() -> None:
             st.download_button(
                 "Download HTML",
                 data=snapshot,
-                file_name="eegvis_report.html",
+                file_name="epochlens_report.html",
                 mime="text/html",
             )
 
-    st.caption("eegvis — first-look figures for labeled EEG (MIT).")
+    st.caption("EpochLens — first-look figures for labeled EEG (MIT).")
 
 
 render()

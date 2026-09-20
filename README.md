@@ -1,4 +1,4 @@
-# eegvis
+# EpochLens
 
 First-look figures for **labeled EEG epochs**.
 
@@ -21,7 +21,7 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 
 Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
 
-Streamlit views: Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Each view includes the LaTeX for the equations eegvis actually computes.
+Streamlit views: Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Each view includes the LaTeX for the equations EpochLens actually computes.
 
 ## What it is not
 
@@ -52,25 +52,25 @@ python -m venv .venv
 Streamlit is the app. Dummy data loads with no file:
 
 ```text
-.\.venv\Scripts\python.exe -m eegvis.explorer
+.\.venv\Scripts\python.exe -m epochlens.explorer
 ```
 
-(`eegvis-explorer` is the same entry point.)
+(`epochlens` is the same entry point.)
 
-Any already-epoched experiment (music listening, motor imagery, ERP, speech, …) as MNE FIF or eegvis NPZ. Upload in the sidebar, or pass a path:
+Any already-epoched experiment (music listening, motor imagery, ERP, speech, …) as MNE FIF or EpochLens NPZ. Upload in the sidebar, or pass a path:
 
 ```text
-.\.venv\Scripts\python.exe -m eegvis.explorer --fif path/to/epochs-epo.fif
-.\.venv\Scripts\python.exe -m eegvis.explorer --npz path/to/epochs.npz
+.\.venv\Scripts\python.exe -m epochlens.explorer --fif path/to/epochs-epo.fif
+.\.venv\Scripts\python.exe -m epochlens.explorer --npz path/to/epochs.npz
 ```
 
-Class labels come from MNE `event_id` or the NPZ sidecar. Epoch in MNE first if you have continuous recordings. eegvis does not cut raw data.
+Class labels come from MNE `event_id` or the NPZ sidecar. Epoch in MNE first if you have continuous recordings. EpochLens does not cut raw data.
 
 Optional static HTML snapshot (also **Export** in the Streamlit sidebar):
 
 ```text
-.\.venv\Scripts\python.exe -m eegvis.explorer --html --out report.html --open
-.\.venv\Scripts\python.exe -m eegvis.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
+.\.venv\Scripts\python.exe -m epochlens.explorer --html --out report.html --open
+.\.venv\Scripts\python.exe -m epochlens.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
 ```
 
 `--full` on the HTML path adds per-class CWT and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders. HTML math is typeset with MathJax (needs a network connection when you open the file).
@@ -80,12 +80,12 @@ Two short PhysioNet motor-imagery runs (subject 1, a few MB) can be epoched to F
 ## Core
 
 ```python
-from eegvis import EpochBatch, write_html
-from eegvis.adapters.npz import save_epochs, load_epochs
-from eegvis.cwt import cwt_power, mean_cwt_power
-from eegvis.discriminability import pairwise_maps
-from eegvis.ranking import score_channels, top_channels
-from eegvis.riemann import trial_covariances, session_whiten, embed_mds
+from epochlens import EpochBatch, write_html
+from epochlens.adapters.npz import save_epochs, load_epochs
+from epochlens.cwt import cwt_power, mean_cwt_power
+from epochlens.discriminability import pairwise_maps
+from epochlens.ranking import score_channels, top_channels
+from epochlens.riemann import trial_covariances, session_whiten, embed_mds
 
 write_html(batch, "report.html", window=(0.5, 2.0), baseline=(0.0, 0.4))
 ```
@@ -93,7 +93,7 @@ write_html(batch, "report.html", window=(0.5, 2.0), baseline=(0.0, 0.4))
 FIF (needs MNE):
 
 ```python
-from eegvis.adapters.fif import load_epochs_fif
+from epochlens.adapters.fif import load_epochs_fif
 
 batch = load_epochs_fif("path/to/epochs-epo.fif")
 ```
@@ -104,10 +104,10 @@ Time windows, sampling rate, and montage are arguments. Nothing BioSemi- or expe
 
 | Path | Role |
 | --- | --- |
-| `src/eegvis/` | Figure-facing algorithms |
-| `src/eegvis/adapters/synthetic.py` | Built-in demo EEG |
-| `src/eegvis/adapters/npz.py` | Save/load generic epochs (no MNE) |
-| `src/eegvis/adapters/fif.py` | Any MNE `*-epo.fif` |
-| `src/eegvis/explorer/` | Streamlit app + HTML export |
+| `src/epochlens/` | Figure-facing algorithms |
+| `src/epochlens/adapters/synthetic.py` | Built-in demo EEG |
+| `src/epochlens/adapters/npz.py` | Save/load generic epochs (no MNE) |
+| `src/epochlens/adapters/fif.py` | Any MNE `*-epo.fif` |
+| `src/epochlens/explorer/` | Streamlit app + HTML export |
 
 License: MIT.

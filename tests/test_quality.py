@@ -1,8 +1,8 @@
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.quality import flag_bad_channels
-from eegvis.ranking import top_channels
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.quality import flag_bad_channels
+from epochlens.ranking import top_channels
 
 
 def test_flag_huge_channel():

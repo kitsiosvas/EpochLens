@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.types import EpochBatch
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.types import EpochBatch
 
 
 def test_epoch_batch_rejects_bad_shape():

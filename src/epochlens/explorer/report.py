@@ -9,14 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
-from eegvis.types import EpochBatch
-from eegvis.bands import band_power, window_spectrum
-from eegvis.cwt import energy_channel_score, mean_cwt_power, relative_scalogram
-from eegvis.decoding import logeuclid_lda_cv
-from eegvis.discriminability import pairwise_maps
-from eegvis.explorer.mathnotes import html_block
-from eegvis.explorer.summary import facts_line
-from eegvis.explorer.style import (
+from epochlens.types import EpochBatch
+from epochlens.bands import band_power, window_spectrum
+from epochlens.cwt import energy_channel_score, mean_cwt_power, relative_scalogram
+from epochlens.decoding import logeuclid_lda_cv
+from epochlens.discriminability import pairwise_maps
+from epochlens.explorer.mathnotes import html_block
+from epochlens.explorer.summary import facts_line
+from epochlens.explorer.style import (
     CLASS_PALETTE,
     DPI,
     INK,
@@ -26,9 +26,9 @@ from eegvis.explorer.style import (
     WINDOW_FILL,
     apply_matplotlib_rc,
 )
-from eegvis.ranking import prepare_ranking, top_channels
-from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
-from eegvis.waveforms import class_mean_sem
+from epochlens.ranking import prepare_ranking, top_channels
+from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.waveforms import class_mean_sem
 
 HONESTY = (
     "This report is a first look at epoched EEG: waveforms, time–frequency, "
@@ -412,7 +412,7 @@ def _pairwise_maps_figure(maps, times, ch_names, pair_labels):
 def _topo_figure(xy, values, highlight=None, vmin=None, vmax=None):
     import matplotlib.pyplot as plt
 
-    from eegvis.topo import interpolate_topo
+    from epochlens.topo import interpolate_topo
 
     Xi, Yi, Zi = interpolate_topo(xy, values)
     fig, ax = plt.subplots(figsize=(4.9, 4.9), layout="constrained")
@@ -443,7 +443,7 @@ def _topo_figure(xy, values, highlight=None, vmin=None, vmax=None):
 def _band_topo_figure(xy, band_means, band_names):
     import matplotlib.pyplot as plt
 
-    from eegvis.topo import interpolate_topo
+    from epochlens.topo import interpolate_topo
 
     n = len(band_names)
     cols = min(4, n)
@@ -739,7 +739,7 @@ def render_report(
         bits.append(f"excluded {n_bad} bad channel{'s' if n_bad != 1 else ''}")
     meta = " · ".join(bits)
     banner = HONESTY
-    footer = "eegvis — first-look figures for labeled EEG (MIT)."
+    footer = "EpochLens — first-look figures for labeled EEG (MIT)."
     if chance is not None:
         banner = f"{banner} {DECODE_NOTE}"
     rank_html = _ranking_table(
@@ -783,7 +783,7 @@ def render_report(
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>eegvis — {batch.dataset or "report"}</title>
+  <title>EpochLens — {batch.dataset or "report"}</title>
   <style>
 {REPORT_CSS}
   </style>
@@ -796,7 +796,7 @@ def render_report(
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
 </head>
 <body>
-  <h1>eegvis</h1>
+  <h1>EpochLens</h1>
   <p class="lede">First-look figures for labeled EEG epochs.</p>
   <div class="banner">{banner}</div>
   <p class="meta">{meta}</p>

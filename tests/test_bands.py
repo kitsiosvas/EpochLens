@@ -1,7 +1,7 @@
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.bands import band_power, window_spectrum
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.bands import band_power, window_spectrum
 
 
 def test_planted_10hz_shows_in_alpha():

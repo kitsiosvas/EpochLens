@@ -1,4 +1,4 @@
-from eegvis.windows import default_windows
+from epochlens.windows import default_windows
 
 
 def test_generic_epochs_use_span_split():

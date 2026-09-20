@@ -49,10 +49,10 @@ def prepare_ranking(
     time_bins: int = 100,
 ):
     """Z-score, drop bad channels, rank. Returns explorer-ready pieces."""
-    from eegvis.discriminability import aggregate_pairs, pairwise_maps
-    from eegvis.quality import flag_bad_channels
-    from eegvis.waveforms import baseline_zscore, rms_channel_score
-    from eegvis.windows import time_mask
+    from epochlens.discriminability import aggregate_pairs, pairwise_maps
+    from epochlens.quality import flag_bad_channels
+    from epochlens.waveforms import baseline_zscore, rms_channel_score
+    from epochlens.windows import time_mask
 
     bad = flag_bad_channels(batch)
     zbatch = baseline_zscore(batch, baseline)

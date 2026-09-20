@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis.types import EpochBatch
-from eegvis.windows import sample_span
+from epochlens.types import EpochBatch
+from epochlens.windows import sample_span
 
 BANDS: tuple[tuple[str, float, float], ...] = (
     ("theta", 4.0, 8.0),

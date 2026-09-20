@@ -3,11 +3,11 @@ import pytest
 
 go = pytest.importorskip("plotly.graph_objects")
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.bands import band_power, window_spectrum
-from eegvis.explorer.plots import band_topomaps, class_mean_spectra
-from eegvis.ranking import prepare_ranking
-from eegvis.topo import interpolate_topo
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.bands import band_power, window_spectrum
+from epochlens.explorer.plots import band_topomaps, class_mean_spectra
+from epochlens.ranking import prepare_ranking
+from epochlens.topo import interpolate_topo
 
 
 def _ranked_spectra(batch, window, baseline, top_k: int = 4):
@@ -23,8 +23,8 @@ def _yaxis_type(axis) -> str:
 
 
 def test_mean_traces_share_ylim_so_noise_is_not_zoomed():
-    from eegvis.explorer.plots import mean_traces
-    from eegvis.waveforms import class_mean_sem
+    from epochlens.explorer.plots import mean_traces
+    from epochlens.waveforms import class_mean_sem
 
     batch = make_synthetic(n_channels=8, trials_per_class=8, seed=7)
     window, baseline = (0.6, 1.4), (0.0, 0.4)
@@ -102,9 +102,9 @@ def test_band_topomaps_one_subplot_per_band():
 
 
 def test_streamlit_helpers_cover_readme_plots():
-    from eegvis.cwt import mean_cwt_power, relative_scalogram
-    from eegvis.discriminability import pairwise_maps
-    from eegvis.explorer.plots import (
+    from epochlens.cwt import mean_cwt_power, relative_scalogram
+    from epochlens.discriminability import pairwise_maps
+    from epochlens.explorer.plots import (
         channel_stem,
         mean_traces,
         pairwise_heatmaps,
@@ -112,8 +112,8 @@ def test_streamlit_helpers_cover_readme_plots():
         scalp_scatter,
         mds_scatter,
     )
-    from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
-    from eegvis.waveforms import class_mean_sem
+    from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+    from epochlens.waveforms import class_mean_sem
 
     batch = make_synthetic(n_channels=8, trials_per_class=6, seed=7)
     window, baseline = (0.6, 1.4), (0.0, 0.4)

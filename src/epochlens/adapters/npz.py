@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from eegvis.adapters.base import AdapterError
-from eegvis.types import EpochBatch
+from epochlens.adapters.base import AdapterError
+from epochlens.types import EpochBatch
 
 
 def save_epochs(batch: EpochBatch, path: str | Path) -> Path:

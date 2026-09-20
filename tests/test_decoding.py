@@ -1,5 +1,5 @@
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.decoding import chance_level, logeuclid_lda_cv
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.decoding import chance_level, logeuclid_lda_cv
 
 
 def test_chance_level_four_class():

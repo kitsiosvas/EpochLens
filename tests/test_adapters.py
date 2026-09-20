@@ -1,4 +1,4 @@
-from eegvis.adapters.synthetic import make_synthetic
+from epochlens.adapters.synthetic import make_synthetic
 
 
 def test_synthetic_label_balance():

@@ -1,4 +1,4 @@
-"""LaTeX for the equations eegvis actually computes. Shared by Streamlit and HTML."""
+"""LaTeX for the equations EpochLens actually computes. Shared by Streamlit and HTML."""
 
 from __future__ import annotations
 

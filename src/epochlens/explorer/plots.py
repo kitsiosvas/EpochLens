@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis.explorer.style import CLASS_PALETTE
+from epochlens.explorer.style import CLASS_PALETTE
 
 try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 except ImportError as exc:  # pragma: no cover
-    raise ImportError("pip install eegvis[explorer] for plotly") from exc
+    raise ImportError("pip install epochlens[explorer] for plotly") from exc
 
 
 def _class_color(key, index: int) -> str:
@@ -381,7 +381,7 @@ def band_topomaps(
     band_means: np.ndarray,
     band_names: list[str],
 ) -> go.Figure:
-    from eegvis.topo import interpolate_topo
+    from epochlens.topo import interpolate_topo
 
     xy = np.asarray(xy, dtype=np.float64)
     band_means = np.asarray(band_means, dtype=np.float64)

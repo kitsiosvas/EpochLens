@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from eegvis.adapters.base import AdapterError
-from eegvis.adapters.npz import load_epochs, save_epochs
-from eegvis.adapters.synthetic import make_synthetic
+from epochlens.adapters.base import AdapterError
+from epochlens.adapters.npz import load_epochs, save_epochs
+from epochlens.adapters.synthetic import make_synthetic
 
 
 def test_missing_npz_raises():

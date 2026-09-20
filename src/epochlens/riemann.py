@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 from scipy.linalg import eigh, expm, logm, sqrtm
 
-from eegvis.types import EpochBatch
-from eegvis.windows import sample_span
+from epochlens.types import EpochBatch
+from epochlens.windows import sample_span
 
 
 def _sym(x: np.ndarray) -> np.ndarray:

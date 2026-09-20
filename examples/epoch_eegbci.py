@@ -1,4 +1,4 @@
-"""Epoch two short PhysioNet EEG Motor Imagery runs (subject 1). Not an eegvis adapter.
+"""Epoch two short PhysioNet EEG Motor Imagery runs (subject 1). Not an EpochLens adapter.
 
 Downloads only runs 4 and 8 (~a few MB), epochs left vs right imagined fist, writes FIF.
 """

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.cwt import mean_cwt_power
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.cwt import mean_cwt_power
 
 
 def test_pick_preserves_trials_and_montage():
@@ -17,7 +17,7 @@ def test_pick_preserves_trials_and_montage():
 
 
 def test_mean_cwt_cache_roundtrip(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("EEGVIS_CACHE", str(tmp_path))
+    monkeypatch.setenv("EPOCHLENS_CACHE", str(tmp_path))
     batch = make_synthetic(n_channels=6, trials_per_class=4, seed=9)
     a, fa, ta = mean_cwt_power(batch, voices_per_octave=6, decim=4, use_cache=True)
     files = list(tmp_path.glob("mean_cwt_*.npz"))

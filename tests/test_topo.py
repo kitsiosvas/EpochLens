@@ -1,6 +1,6 @@
 import numpy as np
 
-from eegvis.topo import interpolate_topo
+from epochlens.topo import interpolate_topo
 
 
 def test_interpolate_topo_peaks_near_source():

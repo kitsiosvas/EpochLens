@@ -1,4 +1,4 @@
-from eegvis.explorer.mathnotes import NOTES, html_block
+from epochlens.explorer.mathnotes import NOTES, html_block
 
 
 def test_every_note_has_display_latex():

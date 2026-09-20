@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis.cache import array_fingerprint, load_npz, save_npz
-from eegvis.types import EpochBatch
+from epochlens.cache import array_fingerprint, load_npz, save_npz
+from epochlens.types import EpochBatch
 
 
 def frequency_axis(

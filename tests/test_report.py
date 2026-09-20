@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from eegvis.adapters.synthetic import make_synthetic
+from epochlens.adapters.synthetic import make_synthetic
 
 
 def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
-    from eegvis.explorer.report import HONESTY, render_report, write_report
+    from epochlens.explorer.report import HONESTY, render_report, write_report
 
     batch = make_synthetic(n_channels=8, trials_per_class=6, seed=7)
     html = render_report(
@@ -62,7 +62,7 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
 def test_full_report_adds_per_class_cwt_and_extra_topomap(tmp_path: Path):
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
-    from eegvis.explorer.report import render_report
+    from epochlens.explorer.report import render_report
 
     batch = make_synthetic(n_channels=8, trials_per_class=6, seed=7)
     html = render_report(

@@ -9,21 +9,21 @@ import time
 import webbrowser
 from pathlib import Path
 
-from eegvis.windows import default_windows
+from epochlens.windows import default_windows
 
 
 def _load_batch(source: str, fif: str, npz: str):
     if source == "synthetic":
-        from eegvis.adapters.synthetic import make_synthetic
+        from epochlens.adapters.synthetic import make_synthetic
 
         return make_synthetic()
     if source == "fif":
-        from eegvis.adapters.fif import load_epochs_fif
+        from epochlens.adapters.fif import load_epochs_fif
 
         if not fif:
             raise SystemExit("--fif path is required")
         return load_epochs_fif(fif)
-    from eegvis.adapters.npz import load_epochs
+    from epochlens.adapters.npz import load_epochs
 
     if not npz:
         raise SystemExit("--npz path is required")
@@ -32,9 +32,9 @@ def _load_batch(source: str, fif: str, npz: str):
 
 def _launch_streamlit(*, fif: str = "", npz: str = "") -> None:
     if fif:
-        os.environ["EEGVIS_FIF"] = fif
+        os.environ["EPOCHLENS_FIF"] = fif
     if npz:
-        os.environ["EEGVIS_NPZ"] = npz
+        os.environ["EPOCHLENS_NPZ"] = npz
     app = Path(__file__).with_name("app.py")
     sys.argv = ["streamlit", "run", str(app), "--browser.gatherUsageStats=false"]
     from streamlit.web import cli as stcli
@@ -43,7 +43,7 @@ def _launch_streamlit(*, fif: str = "", npz: str = "") -> None:
 
 
 def _write_html(args) -> None:
-    from eegvis.explorer.report import render_report, write_report
+    from epochlens.explorer.report import render_report, write_report
 
     batch = _load_batch(args.source, args.fif.strip(), args.npz.strip())
     window, baseline = default_windows(batch.dataset, batch.tmin, float(batch.times[-1]))
@@ -72,7 +72,7 @@ def _write_html(args) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="eegvis-explorer",
+        prog="epochlens",
         description=(
             "Streamlit explorer for labeled EEG epochs. "
             "Pass --html to write a static matplotlib report instead."
@@ -80,13 +80,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--source", choices=["synthetic", "fif", "npz"], default="synthetic")
     parser.add_argument("--fif", default="", help="MNE *-epo.fif from any experiment")
-    parser.add_argument("--npz", default="", help="eegvis NPZ epochs from any experiment")
+    parser.add_argument("--npz", default="", help="EpochLens NPZ epochs from any experiment")
     parser.add_argument(
         "--html",
         action="store_true",
         help="write a static HTML report instead of launching Streamlit",
     )
-    parser.add_argument("--out", default="eegvis_report.html", help="HTML output path (with --html)")
+    parser.add_argument("--out", default="epochlens_report.html", help="HTML output path (with --html)")
     parser.add_argument("--window", default="", help="analysis window tmin,tmax in seconds (with --html)")
     parser.add_argument("--baseline-end", type=float, default=None, help="baseline end in seconds (with --html)")
     parser.add_argument(

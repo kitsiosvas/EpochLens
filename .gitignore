@@ -10,13 +10,13 @@ build/
 .venv/
 venv/
 .env
-.eegvis_cache/
+.epochlens_cache/
 *.npz
 *.zarr
 .streamlit/
 .coverage
 data/
-eegvis_report.html
-eegvis_report.json
+epochlens_report.html
+epochlens_report.json
 demo_report.html
 .DS_Store

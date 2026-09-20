@@ -1,5 +1,5 @@
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.explorer.summary import dataset_facts, facts_line
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.explorer.summary import dataset_facts, facts_line
 
 
 def test_dummy_batch_facts():

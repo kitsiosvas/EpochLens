@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "eegvis"
+name = "epochlens"
 version = "0.1.0"
 description = "First-look figures for labeled EEG: waveforms, scalograms, scalp maps, covariance geometry."
 readme = "README.md"
@@ -24,10 +24,11 @@ dev = ["pytest>=7.4", "matplotlib>=3.7", "plotly>=5.18", "streamlit>=1.32"]
 all = ["streamlit>=1.32", "plotly>=5.18", "matplotlib>=3.7", "mne>=1.6", "pytest>=7.4"]
 
 [project.scripts]
-eegvis-explorer = "eegvis.explorer.cli:main"
+epochlens = "epochlens.explorer.cli:main"
+epochlens-explorer = "epochlens.explorer.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/kitsiosvas/eegvis"
+Homepage = "https://github.com/kitsiosvas/EpochLens"
 
 [tool.setuptools.packages.find]
 where = ["src"]

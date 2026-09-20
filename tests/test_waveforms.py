@@ -1,7 +1,7 @@
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.waveforms import class_mean_sem, rms_channel_score, baseline_zscore
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.waveforms import class_mean_sem, rms_channel_score, baseline_zscore
 
 
 def test_class_mean_sem_shapes():

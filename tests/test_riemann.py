@@ -1,7 +1,7 @@
 import numpy as np
 
-from eegvis.adapters.synthetic import make_synthetic
-from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.adapters.synthetic import make_synthetic
+from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
 
 
 def test_covariances_spd():
