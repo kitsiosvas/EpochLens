@@ -16,9 +16,12 @@ from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_
 from eegvis.windows import time_mask
 
 HONESTY = (
-    "Four-class inner speech on Nieto 2022 is typically near chance "
-    "(about 25–37%; chance is 25%). This report visualizes time–frequency "
-    "structure and covariance geometry. It is not a decoder."
+    "This report visualizes EEG structure in time–frequency and covariance geometry. "
+    "It is not a classifier."
+)
+NIETO_NOTE = (
+    "When using Nieto et al. 2022 (OpenNeuro ds003626), four-class inner speech "
+    "is typically near chance (about 25–37%; chance is 25%)."
 )
 
 
@@ -232,6 +235,11 @@ def render_report(
         f"{batch.n_trials} trials · {batch.n_channels} channels · {batch.sfreq:g} Hz · "
         f"action window {window[0]:g}–{window[1]:g} s"
     )
+    banner = HONESTY
+    footer = "eegvis — EEG visualization (MIT)."
+    if batch.dataset == "nieto2022":
+        banner = f"{HONESTY} {NIETO_NOTE}"
+        footer = "Optional data: Nieto et al., Scientific Data 2022 (OpenNeuro ds003626)."
     blocks = []
     for title, b64 in sections:
         blocks.append(f"<h2>{title}</h2><img alt=\"{title}\" src=\"data:image/png;base64,{b64}\"/>")
@@ -254,14 +262,11 @@ def render_report(
 </head>
 <body>
   <h1>eegvis</h1>
-  <p class="sub">Dataset-agnostic EEG visualization. Not a decoder.</p>
-  <div class="banner">{HONESTY}</div>
+  <p class="sub">EEG visualization.</p>
+  <div class="banner">{banner}</div>
   <p>{meta}</p>
   {body}
-  <footer>
-    Cite the dataset: Nieto et al., Scientific Data 2022.
-    This explorer is GPL-3 (hard fork in purpose of N-Nieto/Inner_Speech_Dataset).
-  </footer>
+  <footer>{footer}</footer>
 </body>
 </html>
 """

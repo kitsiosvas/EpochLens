@@ -71,7 +71,8 @@ def main(argv: list[str] | None = None) -> None:
     html = render_report(batch, window=window, baseline=baseline)
     out = write_report(html, Path(args.out))
     print(f"Wrote {out.resolve()}")
-    print("Honest note: 4-class inner speech on Nieto 2022 is typically near chance (~25–37%).")
+    if args.source == "nieto":
+        print("Note: 4-class inner speech on Nieto 2022 is typically near chance (~25–37%).")
     if args.open_browser:
         webbrowser.open(out.resolve().as_uri())
 

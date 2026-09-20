@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "eegvis"
 version = "0.1.0"
-description = "Dataset-agnostic EEG visualization: CWT scalograms, discriminability maps, sensor ranking, Riemannian embeddings."
+description = "EEG visualization: CWT scalograms, discriminability maps, sensor ranking, Riemannian embeddings."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = { text = "MIT" }
 authors = [{ name = "kitsiosvas" }]
-keywords = ["eeg", "visualization", "cwt", "riemannian", "inner-speech", "bci"]
+keywords = ["eeg", "visualization", "cwt", "riemannian"]
 dependencies = [
   "numpy>=1.24",
   "scipy>=1.11",
@@ -28,8 +28,7 @@ all = ["streamlit>=1.32", "plotly>=5.18", "matplotlib>=3.7", "mne>=1.6", "moabb>
 eegvis-explorer = "eegvis.explorer.cli:main"
 
 [project.urls]
-Upstream = "https://github.com/N-Nieto/Inner_Speech_Dataset"
-Dataset = "https://openneuro.org/datasets/ds003626"
+Homepage = "https://github.com/kitsiosvas/eegvis"
 
 [tool.setuptools.packages.find]
 where = ["src"]

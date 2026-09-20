@@ -30,13 +30,7 @@ def _load_batch(source: str, subject: int, condition: str, root: str):
 
 def render() -> None:
     st.title("eegvis")
-    st.caption("Dataset-agnostic EEG visualization. Not a decoder.")
-
-    st.info(
-        "Four-class inner speech on Nieto 2022 is typically near chance "
-        "(about 25–37%; chance is 25%). This tool shows structure in time–frequency "
-        "and covariance geometry. It does not classify inner speech."
-    )
+    st.caption("EEG visualization.")
 
     with st.sidebar:
         st.header("Data")
@@ -61,6 +55,12 @@ def render() -> None:
     except Exception as exc:
         st.error(str(exc))
         st.stop()
+
+    if source == "Nieto 2022":
+        st.info(
+            "Four-class inner speech on Nieto 2022 is typically near chance "
+            "(about 25–37%; chance is 25%). This tool visualizes structure; it does not classify."
+        )
 
     st.write(
         f"**{batch.dataset}** · subject `{batch.subject_id}` · condition `{batch.condition}` · "
@@ -166,8 +166,7 @@ def render() -> None:
             )
 
     st.caption(
-        "Cite the dataset: Nieto et al., Scientific Data 2022. "
-        "This explorer is GPL-3 (hard fork in purpose of N-Nieto/Inner_Speech_Dataset)."
+        "eegvis — EEG visualization (MIT)."
     )
 
 
