@@ -21,7 +21,7 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 
 Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
 
-Streamlit views: Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance.
+Streamlit views: Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Each view includes the LaTeX for the equations eegvis actually computes.
 
 ## What it is not
 
@@ -49,7 +49,7 @@ python -m venv .venv
 
 ## Explorer
 
-Streamlit is the app. Synthetic demo loads with no file:
+Streamlit is the app. Dummy data loads with no file:
 
 ```text
 .\.venv\Scripts\python.exe -m eegvis.explorer
@@ -73,7 +73,9 @@ Optional static HTML snapshot (also **Export** in the Streamlit sidebar):
 .\.venv\Scripts\python.exe -m eegvis.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
 ```
 
-`--full` on the HTML path adds per-class CWT and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders.
+`--full` on the HTML path adds per-class CWT and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders. HTML math is typeset with MathJax (needs a network connection when you open the file).
+
+Two short PhysioNet motor-imagery runs (subject 1, a few MB) can be epoched to FIF with `examples/epoch_eegbci.py`, then loaded like any other epochs file.
 
 ## Core
 

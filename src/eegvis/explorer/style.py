@@ -47,6 +47,10 @@ REPORT_CSS = """
     table.rank th { background: #efe8db; font-weight: 600; }
     table.rank td.num { font-variant-numeric: tabular-nums; }
     footer { color: var(--muted); font-size: 0.85rem; margin-top: 2.4rem; }
+    .math { margin: 0.7rem 0 0; padding: 0.7rem 0.85rem; background: #f7f1e6;
+            border: 1px dashed var(--rule); color: #4a4338; font-size: 0.9rem; }
+    .math p { margin: 0 0 0.45rem; }
+    .math .eq { margin: 0.35rem 0 0; overflow-x: auto; }
 """
 
 

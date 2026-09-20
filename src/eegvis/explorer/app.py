@@ -1,4 +1,4 @@
-"""Streamlit explorer. Any labeled epochs (FIF / NPZ / synthetic demo)."""
+"""Streamlit explorer. Any labeled epochs (FIF / NPZ / dummy data)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from eegvis.bands import band_power, window_spectrum
 from eegvis.cwt import mean_cwt_power, relative_scalogram
 from eegvis.decoding import logeuclid_lda_cv
 from eegvis.discriminability import pairwise_maps
+from eegvis.explorer.mathnotes import show_math
 from eegvis.explorer.plots import (
     band_topomaps,
     channel_stem,
@@ -33,7 +34,7 @@ from eegvis.windows import default_windows
 
 st.set_page_config(page_title="eegvis", layout="wide")
 
-_SOURCE_SYNTH = "Synthetic demo"
+_SOURCE_SYNTH = "Dummy data"
 _SOURCE_FIF = "MNE epochs FIF"
 _SOURCE_NPZ = "NPZ epochs"
 
@@ -193,6 +194,7 @@ def render() -> None:
             width="stretch",
         )
         st.caption("Ranked channels. Baseline z-scored class means ± SEM; shaded region is the analysis window.")
+        show_math(st, "waveforms")
         spec_freqs, spec_means = _class_spectra(subset, window)
         st.plotly_chart(
             class_mean_spectra(spec_freqs, spec_means, batch.class_names, subset.ch_names),
@@ -202,6 +204,7 @@ def render() -> None:
             "Class-mean spectra in the analysis window (ranked channels). "
             "Log power; shared y-range includes the actual maximum."
         )
+        show_math(st, "spectra")
         if int(np.sum(bad)):
             st.caption(f"Excluded {int(np.sum(bad))} bad channel(s) from ranking.")
 
@@ -230,6 +233,7 @@ def render() -> None:
             "Relative power versus the baseline window (diverging RdBu). "
             "This is baseline-normalized. Ranked channels; dashed lines mark the analysis window."
         )
+        show_math(st, "cwt")
 
     elif view == "Scalp":
         if batch.montage_xy is not None:
@@ -243,6 +247,7 @@ def render() -> None:
                 "Mean band power on the scalp. Each map is scaled independently so spatial "
                 "structure stays visible; sensors overlaid."
             )
+            show_math(st, "scalp")
         else:
             st.plotly_chart(
                 channel_stem(
@@ -279,6 +284,7 @@ def render() -> None:
                 "One panel per class pair: Mann–Whitney U → |z| (README shorthand Wilcoxon). "
                 "Channel ranking uses the mean across pairs."
             )
+            show_math(st, "disc")
 
     elif view == "Ranking":
         st.plotly_chart(
@@ -296,6 +302,7 @@ def render() -> None:
             )
         st.caption("Highlighted sensors are the visualization subset (waveforms / CWT / spectra).")
         st.write("Top channels:", ", ".join(batch.ch_names[i] for i in picks))
+        show_math(st, "ranking")
 
     elif view == "MDS":
         if batch.labels is None:
@@ -322,6 +329,7 @@ def render() -> None:
                     width="stretch",
                 )
             st.caption("Covariance geometry uses the full montage (all channels). Ranked-channel selection is not used.")
+            show_math(st, "mds")
 
     else:
         if batch.labels is None:
@@ -341,6 +349,7 @@ def render() -> None:
                     f"{report.method} · {report.n_splits}-fold · {report.n_features} features · "
                     f"{report.n_trials} trials · full montage (all channels)"
                 )
+                show_math(st, "chance")
 
     with st.sidebar:
         st.header("Export")

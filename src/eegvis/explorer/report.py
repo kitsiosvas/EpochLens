@@ -14,6 +14,7 @@ from eegvis.bands import band_power, window_spectrum
 from eegvis.cwt import energy_channel_score, mean_cwt_power, relative_scalogram
 from eegvis.decoding import logeuclid_lda_cv
 from eegvis.discriminability import pairwise_maps
+from eegvis.explorer.mathnotes import html_block
 from eegvis.explorer.style import (
     CLASS_PALETTE,
     DPI,
@@ -505,11 +506,12 @@ def _class_scalogram_figure(rel_by_class, times, freqs, ch_names, class_names, w
     return fig
 
 
-def _figure_block(title: str, b64: str, caption: str) -> str:
+def _figure_block(title: str, b64: str, caption: str, math_key: str | None = None) -> str:
+    math = html_block(math_key) if math_key else ""
     return (
         f"<figure><h2>{title}</h2>"
         f"<img alt=\"{title}\" src=\"data:image/png;base64,{b64}\"/>"
-        f"<figcaption>{caption}</figcaption></figure>"
+        f"<figcaption>{caption}</figcaption>{math}</figure>"
     )
 
 
@@ -559,12 +561,13 @@ def render_report(
         power, band_names = band_power(batch, window)
         grand_bands = power.mean(axis=0)
 
-    sections: list[tuple[str, str, str]] = []
+    sections: list[tuple[str, str, str, str | None]] = []
     sections.append(
         (
             "Class-mean waveforms (ranked channels, baseline z-scored)",
             _png(_traces_figure(zsub.times, means, sems, batch.class_names, zsub.ch_names, window)),
             "Look for class separation in the shaded analysis window. Traces are baseline z-scored means ± SEM.",
+            "waveforms",
         )
     )
     spec, spec_freqs = window_spectrum(subset, window)
@@ -579,6 +582,7 @@ def render_report(
             "Class-mean spectra in the analysis window",
             _png(_psd_figure(spec_freqs, spec_means, batch.class_names, subset.ch_names)),
             "Log power in the analysis window. Shared log scale keeps quiet channels from looking structured.",
+            "spectra",
         )
     )
     sections.append(
@@ -586,6 +590,7 @@ def render_report(
             "Relative CWT scalograms (ranked channels)",
             _png(_scalogram_figure(rel, cwt_times, freqs, subset.ch_names, window, max_channels=k)),
             "Relative power versus the baseline window (diverging scale). Dashed lines mark the analysis window.",
+            "cwt",
         )
     )
     if full and batch.labels is not None and picks.size:
@@ -616,6 +621,7 @@ def render_report(
                     )
                 ),
                 "Each column is a class. Look for time–frequency structure that is not shared across columns.",
+                "cwt",
             )
         )
     if full and energy is not None:
@@ -624,6 +630,7 @@ def render_report(
                 "CWT energy score on ranked channels",
                 _png(_stem_figure(energy, subset.ch_names)),
                 "Per-channel energy of the relative scalogram in the analysis window.",
+                "cwt_energy",
             )
         )
     if grand_bands is not None and batch.montage_xy is not None:
@@ -632,6 +639,7 @@ def render_report(
                 "Band-power topography",
                 _png(_band_topo_figure(batch.montage_xy, grand_bands, band_names)),
                 "Mean band power on the scalp. Each map is scaled independently so spatial structure stays visible; nose at the top.",
+                "scalp",
             )
         )
 
@@ -654,6 +662,7 @@ def render_report(
                 _png(_pairwise_maps_figure(pair_maps[:, show, :], disc_times, [batch.ch_names[i] for i in show], pair_labels)),
                 "One panel per class pair: Mann–Whitney U converted to |z| (README shorthand Wilcoxon). "
                 "Time is on the x-axis. Ranking uses the mean across pairs.",
+                "disc",
             )
         )
         sections.append(
@@ -667,6 +676,7 @@ def render_report(
                     )
                 ),
                 "Mean pairwise |z| used to pick the CWT/MDS subset (highlighted).",
+                "ranking",
             )
         )
         if full and batch.montage_xy is not None:
@@ -676,6 +686,7 @@ def render_report(
                     "Discriminability topography",
                     _png(_topo_figure(batch.montage_xy, vis_scores, highlight=picks)),
                     "Same discriminability score on the scalp. Circled sensors are in the visualization subset.",
+                    "disc",
                 )
             )
 
@@ -686,6 +697,7 @@ def render_report(
                 "Log-Euclidean MDS of trial covariances",
                 _png(_mds_figure(xy0, batch.labels, batch.sessions, batch.class_names)),
                 "Full-montage trial covariance embeddings (all channels). Color is class; marker is session. Look for class clusters versus session grouping.",
+                "mds",
             )
         )
         n_ses = 0 if batch.sessions is None else int(np.unique(batch.sessions).size)
@@ -698,6 +710,7 @@ def render_report(
                     "Session-whitened MDS",
                     _png(_mds_figure(xy1, batch.labels, batch.sessions, batch.class_names)),
                     "Same full-montage embedding after per-session whitening. Session structure should recede if class geometry remains.",
+                    "mds",
                 )
             )
         try:
@@ -712,6 +725,7 @@ def render_report(
                     f"{chance.n_classes}-class {chance.method} on the full montage (all channels) is {acc} "
                     f"(chance {ch}; majority {maj}). Ranked-channel selection is not used. "
                     "A sanity check versus chance, not a classifier and not a BCI.",
+                    "chance",
                 )
             )
         except ValueError:
@@ -743,6 +757,7 @@ def render_report(
     rank_html = _ranking_table(
         batch.ch_names, scores, picks, bad, labeled=batch.labels is not None
     )
+    rank_html += html_block("ranking")
     if sidecar is not None:
         payload = {
             "dataset": batch.dataset,
@@ -775,7 +790,7 @@ def render_report(
                 "method": chance.method,
             }
         sidecar.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    body = "\n".join(_figure_block(title, b64, caption) for title, b64, caption in sections)
+    body = "\n".join(_figure_block(title, b64, caption, key) for title, b64, caption, key in sections)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -784,6 +799,13 @@ def render_report(
   <style>
 {REPORT_CSS}
   </style>
+  <script>
+    window.MathJax = {{
+      tex: {{ inlineMath: [["$", "$"], ["\\\\(", "\\\\)"]], displayMath: [["\\\\[", "\\\\]"]] }},
+      options: {{ skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"] }}
+    }};
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
 </head>
 <body>
   <h1>eegvis</h1>
