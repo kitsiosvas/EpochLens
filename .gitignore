@@ -15,6 +15,7 @@ venv/
 *.zarr
 .streamlit/
 .coverage
+data/
 eegvis_report.html
 demo_report.html
 .DS_Store

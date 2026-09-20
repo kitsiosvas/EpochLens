@@ -68,6 +68,17 @@ class EpochBatch:
             if self.montage_xy.shape != (n_channels, 2):
                 raise ValueError("montage_xy must be (n_channels, 2)")
 
+    def pick(self, index: np.ndarray | list[int]) -> EpochBatch:
+        """Return a copy with a subset of channels. Core algorithms stay dataset-agnostic."""
+        idx = np.asarray(index, dtype=int).reshape(-1)
+        xy = None if self.montage_xy is None else self.montage_xy[idx]
+        return self.copy_with(
+            data=self.data[:, idx, :],
+            ch_names=[self.ch_names[int(i)] for i in idx],
+            montage_xy=xy,
+        )
+
+
     @property
     def n_trials(self) -> int:
         return int(self.data.shape[0])

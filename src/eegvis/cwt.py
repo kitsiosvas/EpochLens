@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from eegvis.cache import array_fingerprint, load_npz, save_npz
 from eegvis.types import EpochBatch
 
 
@@ -45,6 +46,30 @@ def _morlet_rfft(
     return gain * gauss
 
 
+def _cwt_power_array(
+    data: np.ndarray,
+    sfreq: float,
+    tmin: float,
+    freqs: np.ndarray,
+    n_cycles: float | np.ndarray,
+    decim: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    n_times = data.shape[-1]
+    kernels = _morlet_rfft(n_times, sfreq, freqs, n_cycles)
+    spectra = np.fft.rfft(data, n=n_times, axis=-1)
+    n_out = int(np.ceil(n_times / decim))
+    power = np.empty((data.shape[0], data.shape[1], freqs.size, n_out), dtype=np.float64)
+    for i in range(freqs.size):
+        coeff = np.fft.irfft(spectra * kernels[i], n=n_times, axis=-1)
+        power[:, :, i, :] = np.abs(coeff[..., ::decim])
+    times = tmin + np.arange(n_times, dtype=np.float64)[::decim] / sfreq
+    if times.size > n_out:
+        times = times[:n_out]
+    elif times.size < n_out:
+        times = np.pad(times, (0, n_out - times.size), mode="edge")
+    return power, times
+
+
 def cwt_power(
     batch: EpochBatch,
     fmin: float = 4.0,
@@ -59,26 +84,59 @@ def cwt_power(
     """
     if decim < 1:
         raise ValueError("decim must be >= 1")
-    data = batch.data
-    n_times = data.shape[-1]
     freqs = frequency_axis(fmin, fmax, voices_per_octave)
     nyquist = 0.5 * batch.sfreq
     freqs = freqs[freqs < nyquist]
     if freqs.size == 0:
         raise ValueError("no frequencies below Nyquist")
-    kernels = _morlet_rfft(n_times, batch.sfreq, freqs, n_cycles)
-    spectra = np.fft.rfft(data, n=n_times, axis=-1)
-    n_out = int(np.ceil(n_times / decim))
-    power = np.empty((data.shape[0], data.shape[1], freqs.size, n_out), dtype=np.float64)
-    for i in range(freqs.size):
-        coeff = np.fft.irfft(spectra * kernels[i], n=n_times, axis=-1)
-        power[:, :, i, :] = np.abs(coeff[..., ::decim])
-    times = batch.times[::decim]
-    if times.size > n_out:
-        times = times[:n_out]
-    elif times.size < n_out:
-        times = np.pad(times, (0, n_out - times.size), mode="edge")
+    power, times = _cwt_power_array(batch.data, batch.sfreq, batch.tmin, freqs, n_cycles, decim)
     return power, freqs, times
+
+
+def mean_cwt_power(
+    batch: EpochBatch,
+    fmin: float = 4.0,
+    fmax: float = 40.0,
+    voices_per_octave: int = 30,
+    n_cycles: float = 7.0,
+    decim: int = 1,
+    trial_chunk: int = 8,
+    use_cache: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Trial-averaged CWT power ``(n_channels, n_freqs, n_times)``, optionally cached."""
+    freqs = frequency_axis(fmin, fmax, voices_per_octave)
+    freqs = freqs[freqs < 0.5 * batch.sfreq]
+    payload = {
+        "kind": "mean_cwt",
+        "data": array_fingerprint(batch.data),
+        "sfreq": batch.sfreq,
+        "tmin": batch.tmin,
+        "fmin": fmin,
+        "fmax": fmax,
+        "voices": voices_per_octave,
+        "n_cycles": n_cycles,
+        "decim": decim,
+    }
+    if use_cache:
+        hit = load_npz("mean_cwt", payload)
+        if hit is not None:
+            return hit["power"], hit["freqs"], hit["times"]
+
+    acc = None
+    times = None
+    n_trials = batch.n_trials
+    for start in range(0, n_trials, trial_chunk):
+        sl = slice(start, min(n_trials, start + trial_chunk))
+        power, times = _cwt_power_array(
+            batch.data[sl], batch.sfreq, batch.tmin, freqs, n_cycles, decim
+        )
+        chunk_sum = power.sum(axis=0)
+        acc = chunk_sum if acc is None else acc + chunk_sum
+    assert acc is not None and times is not None
+    mean_power = acc / n_trials
+    if use_cache:
+        save_npz("mean_cwt", payload, {"power": mean_power, "freqs": freqs, "times": times})
+    return mean_power, freqs, times
 
 
 def mean_scalogram(

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from eegvis.types import EpochBatch
-from eegvis.cwt import cwt_power, energy_channel_score, mean_scalogram, relative_scalogram
+from eegvis.cwt import energy_channel_score, mean_cwt_power, relative_scalogram
 from eegvis.discriminability import aggregate_pairs, pairwise_maps
 from eegvis.ranking import score_channels, top_channels
 from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
@@ -151,17 +151,24 @@ def render_report(
 
     plt.rcParams.update({"font.size": 9, "axes.spines.top": False, "axes.spines.right": False})
 
-    power, freqs, times = cwt_power(
-        batch, fmin=fmin, fmax=fmax, voices_per_octave=voices_per_octave, decim=decim
+    mean_power, freqs, times = mean_cwt_power(
+        batch,
+        fmin=fmin,
+        fmax=fmax,
+        voices_per_octave=voices_per_octave,
+        decim=decim,
+        use_cache=True,
     )
-    rel = relative_scalogram(mean_scalogram(power)[None], times, baseline)
+    rel = relative_scalogram(mean_power, times, baseline)
     energy = energy_channel_score(rel, times, window)
+    energy_picks = top_channels(energy, min(8, batch.n_channels))
+    scal_names = [batch.ch_names[i] for i in energy_picks]
 
     sections: list[tuple[str, str]] = []
     sections.append(
         (
-            "Relative CWT scalograms",
-            _png(_scalogram_figure(rel, times, freqs, batch.ch_names, window)),
+            "Relative CWT scalograms (highest-energy channels)",
+            _png(_scalogram_figure(rel[energy_picks], times, freqs, scal_names, window, max_channels=8)),
         )
     )
     sections.append(("CWT energy score in the action window", _png(_stem_figure(energy, batch.ch_names, "CWT energy score"))))
@@ -201,7 +208,7 @@ def render_report(
                 )
             )
 
-        covs = trial_covariances(batch, window)
+        covs = trial_covariances(batch.pick(picks), window)
         xy0 = embed_mds(pairwise_distances(covs, metric="logeuclid"))
         sections.append(
             (

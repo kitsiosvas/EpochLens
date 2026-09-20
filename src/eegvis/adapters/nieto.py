@@ -221,3 +221,33 @@ def _load_moabb(
         condition=cond_key,
         dataset="nieto2022",
     )
+
+
+def fetch_nieto(
+    dest: str | Path,
+    *,
+    subject: int = 1,
+    sessions: list[int] | None = None,
+) -> Path:
+    """Download Nieto 2022 derivatives for one subject via openneuro-py.
+
+    The full dataset is tens of GB. This pulls only ``derivatives/sub-XX``.
+    """
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        import openneuro
+    except ImportError as exc:
+        raise AdapterError(
+            "pip install openneuro-py to download ds003626, or set EEGVIS_NIETO_ROOT "
+            "to a local OpenNeuro copy that already has derivatives/."
+        ) from exc
+
+    name = _subject_name(subject)
+    session_ids = sessions or [1, 2, 3]
+    include = [f"derivatives/{name}/ses-0{ses}/**" for ses in session_ids]
+    openneuro.download(dataset="ds003626", target_dir=str(dest), include=include)
+    nested = dest / "ds003626" / "derivatives" / name
+    if nested.exists() and not (dest / "derivatives" / name).exists():
+        return dest / "ds003626"
+    return dest

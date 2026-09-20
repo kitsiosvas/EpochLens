@@ -22,7 +22,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--baseline-end", type=float, default=None)
     parser.add_argument("--open", action="store_true", dest="open_browser")
     parser.add_argument("--streamlit", action="store_true", help="interactive Streamlit UI")
+    parser.add_argument(
+        "--fetch-nieto",
+        default="",
+        help="Download ds003626 derivatives for --subject into this folder, then plot.",
+    )
     args = parser.parse_args(argv)
+    if args.fetch_nieto.strip():
+        args.source = "nieto"
+
 
     if args.streamlit:
         app = Path(__file__).with_name("app.py")
@@ -39,11 +47,15 @@ def main(argv: list[str] | None = None) -> None:
         window = (0.6, 1.4)
         baseline = (batch.tmin, 0.5)
     else:
-        from eegvis.adapters.nieto import load_nieto
+        from eegvis.adapters.nieto import fetch_nieto, load_nieto
 
-        kwargs = {"subject": args.subject, "condition": args.condition}
-        if args.root.strip():
-            kwargs["root"] = args.root.strip()
+        if args.fetch_nieto.strip():
+            root = fetch_nieto(args.fetch_nieto.strip(), subject=args.subject)
+            kwargs = {"subject": args.subject, "condition": args.condition, "root": root}
+        else:
+            kwargs = {"subject": args.subject, "condition": args.condition}
+            if args.root.strip():
+                kwargs["root"] = args.root.strip()
         batch = load_nieto(**kwargs)
         window = (1.0, 3.5)
         baseline = (batch.tmin, min(batch.tmin + 0.5, 0.5))
