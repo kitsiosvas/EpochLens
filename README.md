@@ -98,6 +98,8 @@ from epochlens.adapters.fif import load_epochs_fif
 batch = load_epochs_fif("path/to/epochs-epo.fif")
 ```
 
+The FIF loader keeps EEG channels only. Session ids come from MNE metadata (`session`, `run`, …) when present.
+
 Time windows, sampling rate, and montage are arguments. Nothing BioSemi- or experiment-specific belongs in the math.
 
 ## Layout

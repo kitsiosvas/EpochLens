@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 
-from epochlens.topo import interpolate_topo
+from epochlens.topo import can_draw_scalp, interpolate_topo, located_mask
 
 
 def test_interpolate_topo_peaks_near_source():
@@ -30,3 +31,30 @@ def test_flat_map_has_no_spoke_artifacts():
     assert np.mean(np.isfinite(field)) > 0.9
     field = field[np.isfinite(field)]
     assert np.std(field) / np.mean(field) < 0.08
+
+
+def test_located_mask_and_scalp_gate():
+    xy = np.array([[1.0, 0.0], [0.0, 1.0], [np.nan, np.nan], [-1.0, 0.0]])
+    mask = located_mask(xy)
+    np.testing.assert_array_equal(mask, [True, True, False, True])
+    assert can_draw_scalp(xy)
+    assert not can_draw_scalp(None)
+    assert not can_draw_scalp(np.full((4, 2), np.nan))
+    two = np.array([[1.0, 0.0], [0.0, 1.0], [np.nan, np.nan], [np.nan, 0.0]])
+    assert not can_draw_scalp(two)
+
+
+def test_interpolate_topo_skips_nan_sensors():
+    xy = np.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [np.nan, np.nan]])
+    values = np.array([0.0, 0.0, 0.0, 100.0])
+    Xi, Yi, Zi = interpolate_topo(xy, values, n=30)
+    assert np.any(np.isfinite(Zi))
+    finite = Zi[np.isfinite(Zi)]
+    assert np.std(finite) < 1.0
+
+
+def test_interpolate_topo_requires_three_located():
+    xy = np.array([[1.0, 0.0], [0.0, 1.0], [np.nan, np.nan], [np.nan, np.nan]])
+    with pytest.raises(ValueError, match="need at least three sensors"):
+        interpolate_topo(xy, np.ones(4))
+

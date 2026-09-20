@@ -11,7 +11,7 @@ import streamlit as st
 
 from epochlens.adapters.synthetic import make_synthetic
 from epochlens.bands import band_power, window_spectrum
-from epochlens.cwt import mean_cwt_power, relative_scalogram
+from epochlens.cwt import class_relative_scalograms, mean_cwt_power, relative_scalogram
 from epochlens.decoding import logeuclid_lda_cv
 from epochlens.discriminability import pairwise_maps
 from epochlens.explorer.mathnotes import show_math
@@ -19,6 +19,7 @@ from epochlens.explorer.plots import (
     band_topomaps,
     channel_stem,
     class_mean_spectra,
+    class_scalogram_grid,
     mds_scatter,
     mean_traces,
     pairwise_heatmaps,
@@ -29,6 +30,7 @@ from epochlens.explorer.report import DECODE_NOTE, HONESTY, render_report
 from epochlens.ranking import prepare_ranking, top_channels
 from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
 from epochlens.explorer.summary import dataset_facts
+from epochlens.topo import can_draw_scalp
 from epochlens.waveforms import class_mean_sem
 from epochlens.windows import default_windows
 
@@ -243,13 +245,40 @@ def render() -> None:
             width="stretch",
         )
         st.caption(
-            "Relative power versus the baseline window (diverging RdBu). "
-            "This is baseline-normalized. Ranked channels; dashed lines mark the analysis window."
+            "Relative power versus the baseline window (diverging RdBu), across trials / ranked channels. "
+            "Dashed lines mark the analysis window."
         )
+        if batch.labels is not None:
+            show_n = min(4, subset.n_channels)
+            rel_by_class, cls_times, cls_freqs, cls_names = class_relative_scalograms(
+                subset,
+                baseline,
+                show_n=show_n,
+                fmin=float(fmin),
+                fmax=float(fmax),
+                voices_per_octave=int(voices),
+                decim=int(decim),
+                use_cache=True,
+            )
+            st.plotly_chart(
+                class_scalogram_grid(
+                    rel_by_class,
+                    cls_times,
+                    cls_freqs,
+                    cls_names,
+                    batch.class_names,
+                    window,
+                ),
+                width="stretch",
+            )
+            st.caption(
+                "Per-class relative power versus the baseline window. "
+                "Each column is a class. Look for time–frequency structure that is not shared across columns."
+            )
         show_math(st, "cwt")
 
     elif view == "Scalp":
-        if batch.montage_xy is not None:
+        if can_draw_scalp(batch.montage_xy):
             power, names = band_power(batch, window)
             grand = power.mean(axis=0)
             st.plotly_chart(
@@ -270,7 +299,12 @@ def render() -> None:
                 ),
                 width="stretch",
             )
-            st.caption("No montage coordinates on this batch, so band-power topography is unavailable.")
+            if batch.montage_xy is None:
+                st.caption("No montage coordinates on this batch, so band-power topography is unavailable.")
+            else:
+                st.caption(
+                    "Fewer than three sensors have coordinates, so band-power topography is unavailable."
+                )
 
     elif view == "Discriminability":
         if ave is None or disc_times is None:
@@ -308,7 +342,7 @@ def render() -> None:
             ),
             width="stretch",
         )
-        if batch.montage_xy is not None:
+        if can_draw_scalp(batch.montage_xy):
             st.plotly_chart(
                 scalp_scatter(batch.montage_xy, picks, f"Top {len(picks)} channels"),
                 width="stretch",

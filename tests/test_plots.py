@@ -148,3 +148,51 @@ def test_streamlit_helpers_cover_readme_plots():
     whitened = session_whiten(covs, batch.sessions, metric="logeuclid")
     xy1 = embed_mds(pairwise_distances(whitened, metric="logeuclid"))
     assert isinstance(mds_scatter(xy1, batch.labels, batch.sessions, batch.class_names, "white"), go.Figure)
+
+
+def test_class_scalogram_grid_one_heatmap_per_channel_and_class():
+    from epochlens.cwt import class_relative_scalograms
+    from epochlens.explorer.plots import class_scalogram_grid
+
+    batch = make_synthetic(n_channels=6, trials_per_class=4, seed=3)
+    show_n = 3
+    subset = batch.pick(np.arange(show_n))
+    rel_by_class, times, freqs, ch_names = class_relative_scalograms(
+        subset,
+        (0.0, 0.4),
+        show_n=show_n,
+        fmin=6.0,
+        fmax=20.0,
+        voices_per_octave=4,
+        decim=4,
+        use_cache=False,
+    )
+    fig = class_scalogram_grid(
+        rel_by_class, times, freqs, ch_names, batch.class_names, (0.6, 1.4)
+    )
+    assert isinstance(fig, go.Figure)
+    heatmaps = [t for t in fig.data if t.type == "heatmap"]
+    n_cls = int(np.unique(batch.labels).size)
+    assert len(heatmaps) == show_n * n_cls
+    assert len(ch_names) == show_n
+    assert len(rel_by_class) == n_cls
+
+
+def test_scalp_plots_skip_nan_coordinates():
+    from epochlens.explorer.plots import scalp_scatter
+
+    batch = make_synthetic(n_channels=8, trials_per_class=4, seed=2)
+    xy = batch.montage_xy.copy()
+    xy[-1] = [np.nan, np.nan]
+    fig = scalp_scatter(xy, np.array([0, 1]), "scalp")
+    for trace in fig.data:
+        assert np.all(np.isfinite(trace.x))
+        assert np.all(np.isfinite(trace.y))
+
+    power, names = band_power(batch, (0.6, 1.4))
+    fig_topo = band_topomaps(xy, power.mean(axis=0), names)
+    scatters = [t for t in fig_topo.data if t.type == "scatter"]
+    assert scatters
+    for trace in scatters:
+        assert np.all(np.isfinite(trace.x))
+        assert np.all(np.isfinite(trace.y))

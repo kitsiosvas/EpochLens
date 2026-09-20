@@ -1,7 +1,15 @@
 import numpy as np
 
 from epochlens.adapters.synthetic import make_synthetic
-from epochlens.cwt import cwt_power, energy_channel_score, mean_scalogram, relative_scalogram
+import pytest
+
+from epochlens.cwt import (
+    class_relative_scalograms,
+    cwt_power,
+    energy_channel_score,
+    mean_scalogram,
+    relative_scalogram,
+)
 
 
 def test_cwt_shapes_and_planted_band():
@@ -46,3 +54,33 @@ def test_relative_and_energy_score():
     scores = energy_channel_score(rel, times, (0.6, 1.4))
     assert scores.shape == (batch.n_channels,)
     assert np.all(np.isfinite(scores))
+
+
+def test_class_relative_scalograms_need_labels():
+    batch = make_synthetic(n_channels=4, trials_per_class=3, seed=6).copy_with(labels=None)
+    with pytest.raises(ValueError, match="labels"):
+        class_relative_scalograms(
+            batch, (0.0, 0.4), show_n=2, voices_per_octave=4, decim=4, use_cache=False
+        )
+
+
+def test_class_relative_scalograms_zero_in_baseline():
+    batch = make_synthetic(n_channels=4, trials_per_class=4, seed=8)
+    baseline = (0.0, 0.4)
+    rel_by_class, times, _freqs, names = class_relative_scalograms(
+        batch,
+        baseline,
+        show_n=2,
+        fmin=6.0,
+        fmax=20.0,
+        voices_per_octave=4,
+        decim=4,
+        use_cache=False,
+    )
+    assert len(names) == 2
+    mask = (times >= baseline[0]) & (times <= baseline[1])
+    assert np.any(mask)
+    for rel in rel_by_class.values():
+        assert rel.shape[0] == 2
+        assert rel.min() < 0
+        np.testing.assert_allclose(rel[..., mask].mean(axis=-1), 0.0, atol=1e-10)

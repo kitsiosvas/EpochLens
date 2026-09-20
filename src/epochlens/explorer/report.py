@@ -11,7 +11,7 @@ import numpy as np
 
 from epochlens.types import EpochBatch
 from epochlens.bands import band_power, window_spectrum
-from epochlens.cwt import energy_channel_score, mean_cwt_power, relative_scalogram
+from epochlens.cwt import class_relative_scalograms, energy_channel_score, mean_cwt_power, relative_scalogram
 from epochlens.decoding import logeuclid_lda_cv
 from epochlens.discriminability import pairwise_maps
 from epochlens.explorer.mathnotes import html_block
@@ -28,6 +28,7 @@ from epochlens.explorer.style import (
 )
 from epochlens.ranking import prepare_ranking, top_channels
 from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.topo import can_draw_scalp, interpolate_topo, located_mask
 from epochlens.waveforms import class_mean_sem
 
 HONESTY = (
@@ -67,8 +68,9 @@ def _head_outline(ax, xy, *, fill=None) -> None:
     from matplotlib.patches import Circle
 
     xy = np.asarray(xy, dtype=np.float64)
-    center = xy.mean(axis=0)
-    radius = float(np.max(np.linalg.norm(xy - center, axis=1)) * 1.15)
+    located = xy[located_mask(xy)]
+    center = located.mean(axis=0)
+    radius = float(np.max(np.linalg.norm(located - center, axis=1)) * 1.15)
     ax.add_patch(
         Circle(
             center,
@@ -98,8 +100,9 @@ def _clip_topo(im, ax, xy) -> None:
     from matplotlib.patches import Circle
 
     xy = np.asarray(xy, dtype=np.float64)
-    center = xy.mean(axis=0)
-    radius = float(np.max(np.linalg.norm(xy - center, axis=1)) * 1.15)
+    located = xy[located_mask(xy)]
+    center = located.mean(axis=0)
+    radius = float(np.max(np.linalg.norm(located - center, axis=1)) * 1.15)
     im.set_clip_path(Circle(center, radius, transform=ax.transData))
 
 
@@ -296,7 +299,7 @@ def _ranking_table(ch_names, scores, picks, bad, *, labeled: bool = False) -> st
     order = np.argsort(np.nan_to_num(vis, nan=-np.inf))[::-1]
     rows = [
         "<table class=\"rank\"><thead><tr>"
-        "<th>Rank</th><th>Channel</th><th>Score</th><th>CWT subset</th>"
+        "<th>Rank</th><th>Channel</th><th>Score</th><th>visualization subset</th>"
         "</tr></thead><tbody>"
     ]
     rank = 0
@@ -320,7 +323,7 @@ def _ranking_table(ch_names, scores, picks, bad, *, labeled: bool = False) -> st
         names = ", ".join(ch_names[i] for i in np.flatnonzero(bad))
         rows.append(f"<p class=\"sub\">Excluded bad channels: {names}</p>")
     n_finite = int(np.sum(np.isfinite(vis) & ~np.asarray(bad, dtype=bool)))
-    note = "Waveforms and CWT use the top-k subset."
+    note = "Waveforms, CWT, and spectra use the top-k visualization subset."
     if labeled:
         note += " MDS and the chance check use the full montage (all channels)."
     if n_finite > n_show:
@@ -412,8 +415,6 @@ def _pairwise_maps_figure(maps, times, ch_names, pair_labels):
 def _topo_figure(xy, values, highlight=None, vmin=None, vmax=None):
     import matplotlib.pyplot as plt
 
-    from epochlens.topo import interpolate_topo
-
     Xi, Yi, Zi = interpolate_topo(xy, values)
     fig, ax = plt.subplots(figsize=(4.9, 4.9), layout="constrained")
     if vmax is None:
@@ -423,11 +424,14 @@ def _topo_figure(xy, values, highlight=None, vmin=None, vmax=None):
         vmin = -vmax
     im = ax.pcolormesh(Xi, Yi, Zi, shading="auto", cmap="RdBu_r", vmin=vmin, vmax=vmax, zorder=2)
     _clip_topo(im, ax, xy)
-    ax.scatter(xy[:, 0], xy[:, 1], c=INK, s=10, zorder=3)
+    ok = located_mask(xy)
+    ax.scatter(xy[ok, 0], xy[ok, 1], c=INK, s=10, zorder=3)
     if highlight is not None:
+        h = np.asarray(highlight, dtype=int)
+        h = h[ok[h]]
         ax.scatter(
-            xy[np.asarray(highlight), 0],
-            xy[np.asarray(highlight), 1],
+            xy[h, 0],
+            xy[h, 1],
             facecolors="none",
             edgecolors=INK,
             s=64,
@@ -443,14 +447,13 @@ def _topo_figure(xy, values, highlight=None, vmin=None, vmax=None):
 def _band_topo_figure(xy, band_means, band_names):
     import matplotlib.pyplot as plt
 
-    from epochlens.topo import interpolate_topo
-
     n = len(band_names)
     cols = min(4, n)
     rows = int(np.ceil(n / cols))
     fig, axes = plt.subplots(
         rows, cols, figsize=(3.25 * cols, 3.15 * rows), squeeze=False, layout="constrained"
     )
+    ok = located_mask(xy)
     for i in range(rows * cols):
         ax = axes[i // cols][i % cols]
         if i >= n:
@@ -460,7 +463,7 @@ def _band_topo_figure(xy, band_means, band_names):
         vmax = max(float(np.nanpercentile(np.abs(Zi), 98)), 1e-9)
         im = ax.pcolormesh(Xi, Yi, Zi, shading="auto", cmap="inferno", vmin=0, vmax=vmax, zorder=2)
         _clip_topo(im, ax, xy)
-        ax.scatter(xy[:, 0], xy[:, 1], c="#f3eee4", s=7, zorder=6)
+        ax.scatter(xy[ok, 0], xy[ok, 1], c="#f3eee4", s=7, zorder=6)
         _head_outline(ax, xy)
         ax.set_aspect("equal")
         ax.axis("off")
@@ -558,7 +561,8 @@ def render_report(
     energy = energy_channel_score(rel, cwt_times, window) if full else None
     grand_bands = None
     band_names: list[str] = []
-    if batch.montage_xy is not None:
+    draw_scalp = can_draw_scalp(batch.montage_xy)
+    if draw_scalp:
         power, band_names = band_power(batch, window)
         grand_bands = power.mean(axis=0)
 
@@ -596,18 +600,16 @@ def render_report(
     )
     if full and batch.labels is not None and picks.size:
         show_n = min(4, subset.n_channels)
-        rel_by_class = {}
-        for cls in np.unique(batch.labels):
-            sub_cls = subset.subset_trials(batch.labels == cls).pick(np.arange(show_n))
-            mp, cf, ct = mean_cwt_power(
-                sub_cls,
-                fmin=fmin,
-                fmax=fmax,
-                voices_per_octave=voices_per_octave,
-                decim=decim,
-                use_cache=True,
-            )
-            rel_by_class[int(cls)] = relative_scalogram(mp, ct, baseline)
+        rel_by_class, ct, cf, class_ch_names = class_relative_scalograms(
+            subset,
+            baseline,
+            show_n=show_n,
+            fmin=fmin,
+            fmax=fmax,
+            voices_per_octave=voices_per_octave,
+            decim=decim,
+            use_cache=True,
+        )
         sections.append(
             (
                 "Per-class relative CWT",
@@ -616,11 +618,12 @@ def render_report(
                         rel_by_class,
                         ct,
                         cf,
-                        sub_cls.ch_names,
+                        class_ch_names,
                         batch.class_names,
                         window,
                     )
                 ),
+                "Per-class relative power versus the baseline window. "
                 "Each column is a class. Look for time–frequency structure that is not shared across columns.",
                 "cwt",
             )
@@ -634,7 +637,7 @@ def render_report(
                 "cwt_energy",
             )
         )
-    if grand_bands is not None and batch.montage_xy is not None:
+    if grand_bands is not None and draw_scalp:
         sections.append(
             (
                 "Band-power topography",
@@ -676,11 +679,11 @@ def render_report(
                         picks=picks,
                     )
                 ),
-                "Mean pairwise |z| used to pick the CWT/MDS subset (highlighted).",
+                "Mean pairwise |z| used to pick the visualization subset for waveforms / CWT / spectra (highlighted). MDS uses the full montage.",
                 "ranking",
             )
         )
-        if full and batch.montage_xy is not None:
+        if full and draw_scalp:
             vis_scores = np.nan_to_num(scores, neginf=0.0)
             sections.append(
                 (

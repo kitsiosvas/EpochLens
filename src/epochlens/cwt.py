@@ -155,6 +155,43 @@ def mean_scalogram(
     return out
 
 
+def class_relative_scalograms(
+    batch: EpochBatch,
+    baseline: tuple[float, float],
+    *,
+    show_n: int = 4,
+    fmin: float = 4.0,
+    fmax: float = 40.0,
+    voices_per_octave: int = 30,
+    n_cycles: float = 7.0,
+    decim: int = 1,
+    use_cache: bool = True,
+) -> tuple[dict[int, np.ndarray], np.ndarray, np.ndarray, list[str]]:
+    """Per-class baseline-relative CWT on the first ``show_n`` channels."""
+    if batch.labels is None:
+        raise ValueError("class relative CWT needs labels")
+    n_show = min(int(show_n), batch.n_channels)
+    rel_by_class: dict[int, np.ndarray] = {}
+    times: np.ndarray | None = None
+    freqs: np.ndarray | None = None
+    names: list[str] = []
+    for cls in np.unique(batch.labels):
+        sub_cls = batch.subset_trials(batch.labels == cls).pick(np.arange(n_show))
+        mean_power, freqs, times = mean_cwt_power(
+            sub_cls,
+            fmin=fmin,
+            fmax=fmax,
+            voices_per_octave=voices_per_octave,
+            n_cycles=n_cycles,
+            decim=decim,
+            use_cache=use_cache,
+        )
+        rel_by_class[int(cls)] = relative_scalogram(mean_power, times, baseline)
+        names = sub_cls.ch_names
+    assert times is not None and freqs is not None
+    return rel_by_class, times, freqs, names
+
+
 def relative_scalogram(
     scalogram: np.ndarray,
     times: np.ndarray,

@@ -9,18 +9,45 @@ import numpy as np
 from epochlens.adapters.base import AdapterError
 from epochlens.types import EpochBatch
 
+_SESSION_COLUMNS = ("session", "sessions", "sess", "run", "recording", "block")
+
 
 def _montage_xy(ch_names: list[str], montage) -> np.ndarray | None:
     if montage is None:
         return None
     pos = montage.get_positions().get("ch_pos") or {}
-    xy = []
-    for name in ch_names:
+    xy = np.full((len(ch_names), 2), np.nan, dtype=np.float64)
+    n_located = 0
+    for i, name in enumerate(ch_names):
         if name not in pos:
-            return None
-        xyz = pos[name]
-        xy.append([float(xyz[0]), float(xyz[1])])
-    return np.asarray(xy, dtype=np.float64)
+            continue
+        xyz = np.asarray(pos[name], dtype=np.float64).reshape(-1)
+        if xyz.size < 2 or not np.isfinite(xyz[:2]).all():
+            continue
+        xy[i, 0] = float(xyz[0])
+        xy[i, 1] = float(xyz[1])
+        n_located += 1
+    if n_located == 0:
+        return None
+    return xy
+
+
+def _sessions_from_metadata(epochs, n_trials: int) -> np.ndarray | None:
+    metadata = getattr(epochs, "metadata", None)
+    if metadata is None:
+        return None
+    columns = getattr(metadata, "columns", None)
+    if columns is None:
+        return None
+    by_lower = {str(name).lower(): name for name in columns}
+    chosen = next((by_lower[key] for key in _SESSION_COLUMNS if key in by_lower), None)
+    if chosen is None:
+        return None
+    values = np.asarray(metadata[chosen])
+    if values.shape[0] != n_trials:
+        return None
+    _codes, inverse = np.unique(values, return_inverse=True)
+    return np.asarray(inverse, dtype=int)
 
 
 def load_epochs_fif(path: str | Path) -> EpochBatch:
@@ -37,6 +64,11 @@ def load_epochs_fif(path: str | Path) -> EpochBatch:
         epochs = mne.read_epochs(path, preload=True, verbose="ERROR")
     except Exception as exc:
         raise AdapterError(f"could not read epochs: {path}: {exc}") from exc
+
+    eeg_idx = mne.pick_types(epochs.info, meg=False, eeg=True, exclude=[])
+    if eeg_idx.size == 0:
+        raise AdapterError("no EEG channels in epochs file")
+    epochs.pick(eeg_idx)
 
     data = epochs.get_data(copy=True)
     ch_names = list(epochs.ch_names)
@@ -56,7 +88,7 @@ def load_epochs_fif(path: str | Path) -> EpochBatch:
         ch_names=ch_names,
         tmin=float(epochs.tmin),
         labels=labels,
-        sessions=None,
+        sessions=_sessions_from_metadata(epochs, data.shape[0]),
         montage_xy=_montage_xy(ch_names, montage),
         class_names=class_names,
         subject_id=path.stem,

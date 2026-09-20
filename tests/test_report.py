@@ -32,6 +32,7 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     assert "band-power topography" in low
     assert "session-whitened" in low
     assert "per-class relative cwt" not in low
+    assert "per-class relative power versus the baseline" not in low
     assert "all channels" in low or "full montage" in low
     assert "ranked-channel selection is not used" in low
     assert "full-montage" in low
@@ -43,6 +44,10 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     assert "analysis window" in low
     assert "24 trials" in low
     assert "8 channels" in low
+    assert "cwt/mds subset" not in low
+    assert "visualization subset" in low
+    assert "waveforms / cwt / spectra" in low
+    assert "mds uses the full montage" in low
     assert "mathjax" in low
     assert "\\mathrm{SEM}" in html
     assert "\\[" in html
@@ -77,6 +82,7 @@ def test_full_report_adds_per_class_cwt_and_extra_topomap(tmp_path: Path):
     )
     low = html.lower()
     assert "per-class relative cwt" in low
+    assert "per-class relative power versus the baseline" in low
     assert "discriminability topography" in low
     assert "not a classifier" in low
     assert "not a bci" in low

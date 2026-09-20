@@ -90,18 +90,81 @@ def channel_stem(scores: np.ndarray, ch_names: list[str], title: str) -> go.Figu
     return fig
 
 
+def class_scalogram_grid(
+    rel_by_class: dict,
+    times: np.ndarray,
+    freqs: np.ndarray,
+    ch_names: list[str],
+    class_names: dict[int, str],
+    window: tuple[float, float] | None = None,
+) -> go.Figure:
+    """Rows are channels, columns are classes. Shared diverging relative-power scale."""
+    keys = [int(k) for k in rel_by_class.keys()]
+    n_ch = len(ch_names)
+    n_cls = len(keys)
+    if n_ch < 1 or n_cls < 1:
+        raise ValueError("need at least one channel and one class")
+    titles: list[str] = []
+    for r in range(n_ch):
+        for key in keys:
+            if r == 0:
+                titles.append(str(class_names.get(key, key)))
+            else:
+                titles.append("")
+    fig = make_subplots(
+        rows=n_ch,
+        cols=n_cls,
+        subplot_titles=titles,
+        shared_xaxes=True,
+        shared_yaxes=True,
+        horizontal_spacing=0.04,
+        vertical_spacing=0.06,
+    )
+    stacked = np.concatenate([np.asarray(rel_by_class[key]) for key in keys], axis=0)
+    vmax = float(np.nanpercentile(np.abs(stacked), 98))
+    vmax = max(vmax, 1e-9)
+    for r, name in enumerate(ch_names):
+        for c, key in enumerate(keys):
+            fig.add_trace(
+                go.Heatmap(
+                    z=rel_by_class[key][r],
+                    x=times,
+                    y=freqs,
+                    coloraxis="coloraxis",
+                    showscale=False,
+                ),
+                row=r + 1,
+                col=c + 1,
+            )
+            if window is not None:
+                for x in window:
+                    fig.add_vline(x=x, line_width=1, line_color="#1c1917", row=r + 1, col=c + 1)
+        fig.update_yaxes(title_text=name, row=r + 1, col=1)
+    fig.update_layout(
+        coloraxis=dict(colorscale="RdBu", cmin=-vmax, cmax=vmax, colorbar=dict(title="relative power")),
+        height=max(280, 160 * n_ch),
+        margin=dict(l=60, r=20, t=50, b=40),
+    )
+    fig.update_xaxes(title_text="s", row=n_ch, col=1)
+    return fig
+
+
 def scalp_scatter(
     xy: np.ndarray,
     highlight: np.ndarray,
     title: str,
 ) -> go.Figure:
+    from epochlens.topo import located_mask
+
+    xy = np.asarray(xy, dtype=np.float64)
+    ok = located_mask(xy)
     mask = np.zeros(xy.shape[0], dtype=bool)
     mask[np.asarray(highlight, dtype=int)] = True
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=xy[~mask, 0],
-            y=xy[~mask, 1],
+            x=xy[ok & ~mask, 0],
+            y=xy[ok & ~mask, 1],
             mode="markers",
             name="other",
             marker=dict(size=8, color="#888"),
@@ -109,8 +172,8 @@ def scalp_scatter(
     )
     fig.add_trace(
         go.Scatter(
-            x=xy[mask, 0],
-            y=xy[mask, 1],
+            x=xy[ok & mask, 0],
+            y=xy[ok & mask, 1],
             mode="markers",
             name="selected",
             marker=dict(size=12, color="#c44"),
@@ -381,7 +444,7 @@ def band_topomaps(
     band_means: np.ndarray,
     band_names: list[str],
 ) -> go.Figure:
-    from epochlens.topo import interpolate_topo
+    from epochlens.topo import interpolate_topo, located_mask
 
     xy = np.asarray(xy, dtype=np.float64)
     band_means = np.asarray(band_means, dtype=np.float64)
@@ -398,6 +461,7 @@ def band_topomaps(
         vertical_spacing=0.12,
     )
     coloraxes: dict[str, dict] = {}
+    ok = located_mask(xy)
     for i, name in enumerate(band_names):
         r, c = divmod(i, cols)
         Xi, Yi, Zi = interpolate_topo(xy, band_means[:, i])
@@ -418,8 +482,8 @@ def band_topomaps(
         )
         fig.add_trace(
             go.Scatter(
-                x=xy[:, 0],
-                y=xy[:, 1],
+                x=xy[ok, 0],
+                y=xy[ok, 1],
                 mode="markers",
                 name="sensors",
                 marker=dict(size=6, color="#f3eee4", line=dict(width=0.6, color="#1C1917")),

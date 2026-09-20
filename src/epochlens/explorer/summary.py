@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from epochlens.topo import can_draw_scalp
 from epochlens.types import EpochBatch
 
 
@@ -29,7 +30,7 @@ def dataset_facts(batch: EpochBatch) -> dict[str, str]:
         "classes": "unlabeled",
         "class_detail": "",
         "sessions": "",
-        "montage": "yes" if batch.montage_xy is not None else "no",
+        "montage": "yes" if can_draw_scalp(batch.montage_xy) else "no",
     }
     if batch.labels is not None:
         keys = [int(c) for c in np.unique(batch.labels)]
