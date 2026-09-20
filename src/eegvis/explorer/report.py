@@ -15,6 +15,7 @@ from eegvis.cwt import energy_channel_score, mean_cwt_power, relative_scalogram
 from eegvis.decoding import logeuclid_lda_cv
 from eegvis.discriminability import pairwise_maps
 from eegvis.explorer.mathnotes import html_block
+from eegvis.explorer.summary import facts_line
 from eegvis.explorer.style import (
     CLASS_PALETTE,
     DPI,
@@ -732,21 +733,8 @@ def render_report(
             chance = None
 
     n_bad = int(np.sum(bad))
-    bits = []
-    if batch.dataset:
-        bits.append(str(batch.dataset))
-    if batch.subject_id:
-        bits.append(f"subject {batch.subject_id}")
-    if batch.condition:
-        bits.append(str(batch.condition))
-    bits.extend(
-        [
-            f"{batch.n_trials} trials",
-            f"{batch.n_channels} channels",
-            f"{batch.sfreq:g} Hz",
-            f"analysis window {window[0]:g}–{window[1]:g} s",
-        ]
-    )
+    bits = [facts_line(batch)]
+    bits.append(f"analysis window {window[0]:g}–{window[1]:g} s")
     if n_bad:
         bits.append(f"excluded {n_bad} bad channel{'s' if n_bad != 1 else ''}")
     meta = " · ".join(bits)

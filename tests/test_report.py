@@ -41,6 +41,8 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     assert "pronounced" not in low
     assert "action window" not in low
     assert "analysis window" in low
+    assert "24 trials" in low
+    assert "8 channels" in low
     assert "mathjax" in low
     assert "\\mathrm{SEM}" in html
     assert "\\[" in html

@@ -28,6 +28,7 @@ from eegvis.explorer.plots import (
 from eegvis.explorer.report import DECODE_NOTE, HONESTY, render_report
 from eegvis.ranking import prepare_ranking, top_channels
 from eegvis.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from eegvis.explorer.summary import dataset_facts
 from eegvis.waveforms import class_mean_sem
 from eegvis.windows import default_windows
 
@@ -164,13 +165,25 @@ def render() -> None:
 
     st.caption(HONESTY)
 
-    bits = [f"**{batch.dataset}**"]
+    facts = dataset_facts(batch)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Epoch duration", facts["duration"])
+    m2.metric("Channels", facts["channels"])
+    m3.metric("Trials", facts["trials"])
+    m4.metric("Sampling", facts["sfreq"])
+    m5.metric("Classes", facts["classes"])
+    detail = [facts["span"], f"{facts['samples']} samples"]
+    if facts["class_detail"]:
+        detail.append(facts["class_detail"])
+    if facts["sessions"]:
+        detail.append(f"{facts['sessions']} sessions")
+    if batch.dataset:
+        detail.append(str(batch.dataset))
     if batch.subject_id:
-        bits.append(f"subject `{batch.subject_id}`")
-    if batch.condition:
-        bits.append(batch.condition)
-    bits.append(f"{batch.n_trials} trials · {batch.n_channels} channels · {batch.sfreq:g} Hz")
-    st.write(" · ".join(bits))
+        detail.append(f"subject {batch.subject_id}")
+    if facts["montage"] == "yes":
+        detail.append("montage")
+    st.caption(" · ".join(detail))
 
     window = (float(t_win0), float(t_win1))
     baseline = (float(batch.tmin), float(t_pre))
