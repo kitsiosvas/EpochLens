@@ -63,7 +63,7 @@ def prepare_ranking(
         picks = top_channels(scores, k)
         if picks.size == 0:
             picks = np.arange(min(int(top_k), batch.n_channels))
-        return zbatch, scores, picks, None, None, [], bad
+        return zbatch, scores, picks, None, None, [], bad, None
     idx = np.flatnonzero(time_mask(zbatch.times, window[0], window[1]))
     if idx.size == 0:
         raise ValueError("analysis window empty")
@@ -76,7 +76,35 @@ def prepare_ranking(
     picks = top_channels(scores, k)
     if picks.size == 0:
         picks = np.arange(min(int(top_k), batch.n_channels))
-    return zbatch, scores, picks, ave, zbatch.times[idx], pairs, bad
+    return zbatch, scores, picks, ave, zbatch.times[idx], pairs, bad, maps
+
+
+def ranking_table(
+    scores: np.ndarray,
+    ch_names: list[str],
+    picks: np.ndarray,
+    votes: np.ndarray | None = None,
+) -> list[dict[str, object]]:
+    """Readable ranking rows, sorted by score (highest first)."""
+    scores = np.asarray(scores, dtype=np.float64)
+    n = scores.size
+    if len(ch_names) != n:
+        raise ValueError("ch_names length must match scores")
+    order = np.argsort(np.nan_to_num(scores, nan=-np.inf, neginf=-np.inf))[::-1]
+    viz = set(int(i) for i in np.asarray(picks).ravel())
+    rows: list[dict[str, object]] = []
+    for rank, idx in enumerate(order, start=1):
+        score = float(scores[idx])
+        row: dict[str, object] = {
+            "channel": ch_names[int(idx)],
+            "score": score if np.isfinite(score) else None,
+            "rank": rank,
+            "in visualization subset": "yes" if int(idx) in viz else "no",
+        }
+        if votes is not None:
+            row["session votes"] = int(np.asarray(votes)[idx])
+        rows.append(row)
+    return rows
 
 
 def vote_channels(top_index_lists: list[np.ndarray], n_channels: int) -> np.ndarray:

@@ -14,6 +14,13 @@ BANDS: tuple[tuple[str, float, float], ...] = (
     ("gamma", 30.0, 45.0),
 )
 
+BAND_GLYPHS: dict[str, str] = {
+    "theta": "θ",
+    "alpha": "α",
+    "beta": "β",
+    "gamma": "γ",
+}
+
 
 def window_spectrum(
     batch: EpochBatch,
@@ -52,3 +59,34 @@ def band_power(
     if not cols:
         raise ValueError("no bands below Nyquist")
     return np.stack(cols, axis=-1), names
+
+
+def class_mean_band_power(
+    power: np.ndarray,
+    labels: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Class-mean of trial-wise ``band_power``.
+
+    ``power`` is ``(n_trials, n_channels, n_bands)``. Returns
+    ``(n_classes, n_channels, n_bands)`` and the class ids in ``np.unique`` order.
+    """
+    power = np.asarray(power, dtype=np.float64)
+    labels = np.asarray(labels)
+    if power.ndim != 3:
+        raise ValueError("power must be (n_trials, n_channels, n_bands)")
+    if labels.shape[0] != power.shape[0]:
+        raise ValueError("labels length must match n_trials")
+    classes = np.unique(labels)
+    means = np.stack([power[labels == cls].mean(axis=0) for cls in classes], axis=0)
+    return means, classes
+
+
+def band_range_caption(
+    bands: tuple[tuple[str, float, float], ...] = BANDS,
+) -> str:
+    """Compact θ/α/β/γ Hz listing for figure captions."""
+    parts = []
+    for name, lo, hi in bands:
+        glyph = BAND_GLYPHS.get(name, name)
+        parts.append(f"{glyph} {lo:g}–{hi:g} Hz")
+    return " · ".join(parts)

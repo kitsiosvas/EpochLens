@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from epochlens.adapters.synthetic import make_synthetic
-from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.riemann import embed_mds, mds_stress, pairwise_distances, session_whiten, trial_covariances
 
 
 def test_covariances_spd():
@@ -56,3 +56,28 @@ def test_distances_match_pyriemann():
         ours = pairwise_distances(covs, metric=metric)
         theirs = np.asarray(pairwise_distance(covs, metric=metric), dtype=np.float64)
         assert np.allclose(ours, theirs, atol=1e-8), metric
+
+
+def test_mds_stress_nonnegative_and_exact_for_euclidean():
+    xy_true = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    d = np.sqrt(((xy_true[:, None, :] - xy_true[None, :, :]) ** 2).sum(axis=-1))
+    xy = embed_mds(d)
+    stress = mds_stress(d, xy)
+    assert stress >= 0.0
+    assert np.isfinite(stress)
+    assert stress < 1e-8
+
+    batch = make_synthetic(n_channels=5, trials_per_class=4, seed=5)
+    covs = trial_covariances(batch, (0.5, 1.4))
+    dist = pairwise_distances(covs, metric="logeuclid")
+    embedded = embed_mds(dist)
+    s = mds_stress(dist, embedded)
+    assert s >= 0.0
+    assert np.isfinite(s) or s == float("inf")
+
+
+def test_covariance_estimators_run():
+    batch = make_synthetic(n_channels=4, trials_per_class=4, duration=1.0, seed=8)
+    for est in ("lwf", "oas", "scm"):
+        covs = trial_covariances(batch, (0.5, 0.9), estimator=est)
+        assert covs.shape == (batch.n_trials, 4, 4)

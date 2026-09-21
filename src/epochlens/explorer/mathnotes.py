@@ -43,11 +43,13 @@ NOTES: dict[str, MathNote] = {
         summary=(
             "Power in the analysis window is the squared magnitude of a real FFT "
             "after a Hann taper. Class curves are trial means of that power. "
-            "The y-axis is logarithmic."
+            "The y-axis is logarithmic. Canonical θ/α/β/γ bands are listed under "
+            "the plot; a table gives class-mean band power on the ranked channels."
         ),
         equations=(
             r"w_t=\frac{1}{2}\bigl(1-\cos\frac{2\pi t}{T-1}\bigr)",
             r"P(f)=\Bigl|\sum_{t=0}^{T-1} w_t\, x_t\, e^{-2\pi i f t/f_s}\Bigr|^2",
+            r"B_{c,b}=\mathrm{mean}\bigl\{P_c(f):f\in[f_b^{\mathrm{lo}},f_b^{\mathrm{hi}})\bigr\}",
         ),
     ),
     "cwt": MathNote(
@@ -75,10 +77,12 @@ NOTES: dict[str, MathNote] = {
             "Band power is the mean of the Hann-tapered spectrum inside each band "
             r"$[\theta,\alpha,\beta,\gamma]$. "
             "The scalp field is a thin-plate spline at the 2-D sensor coordinates, "
-            "masked to a circle. Each map is scaled on its own."
+            "masked to a circle. Grand-mean maps are shown first, then class means. "
+            "Each map is scaled on its own."
         ),
         equations=(
             r"B_{c,b}=\mathrm{mean}\bigl\{P_c(f):f\in[f_b^{\mathrm{lo}},f_b^{\mathrm{hi}})\bigr\}",
+            r"\bar{B}_{k,c,b}=\mathrm{mean}_{i\in k} B_{i,c,b}",
             r"\phi(\mathbf{r})=\mathrm{TPS}\bigl\{(\mathbf{r}_c,\,B_{c,b})\bigr\}",
         ),
     ),
@@ -87,20 +91,23 @@ NOTES: dict[str, MathNote] = {
             "At each channel and time sample, class pairs are compared with a "
             "two-sided Mann–Whitney U (README shorthand: Wilcoxon). "
             r"$U$ is converted to a normal $z$ under the null; the map shows $|z|$. "
-            "Ranking averages $|z|$ over pairs."
+            "Ranking averages $|z|$ over pairs. The explorer also reports the "
+            "channel and time of the maximum of that mean-|z| map."
         ),
         equations=(
             r"\mu_U=\frac{n_1 n_2}{2},\quad "
             r"\sigma_U=\sqrt{\frac{n_1 n_2(n_1+n_2+1)}{12}}",
             r"z=\frac{U-\mu_U}{\sigma_U},\quad "
             r"s_c=\mathrm{mean}_{\mathrm{pairs},\,t}\lvert z_{c,t}\rvert",
+            r"(c^\star,t^\star)=\mathrm{argmax}_{c,t}\,\mathrm{mean}_{\mathrm{pairs}}\lvert z_{c,t}\rvert",
         ),
     ),
     "ranking": MathNote(
         summary=(
             "Channels are sorted by that discriminability score. Dead, single-trial-dominated, "
             "or MAD-outlier sensors (log RMS) are excluded. Waveforms / CWT / spectra use "
-            "the top-$k$ subset; MDS and the chance check do not."
+            "the top-$k$ subset; MDS and the chance check do not. The explorer table lists "
+            "score, rank, visualization-subset membership, and session votes when available."
         ),
         equations=(
             r"\mathrm{MAD}=1.4826\cdot\mathrm{median}_c\lvert \log_{10}\mathrm{RMS}_c-m\rvert",
@@ -110,17 +117,19 @@ NOTES: dict[str, MathNote] = {
     ),
     "mds": MathNote(
         summary=(
-            "Each trial is a Ledoit–Wolf covariance of the analysis window "
-            "(all channels), estimated with pyRiemann. Distances and session "
-            "whitening also come from pyRiemann: log-Euclidean or affine-invariant "
-            "Riemannian. Points are classical MDS (computed here, not by pyRiemann)."
+            "Each trial is a covariance of the analysis window (all channels), "
+            "estimated with pyRiemann (Ledoit–Wolf, OAS, or sample covariance). "
+            "Distances and session whitening also come from pyRiemann: log-Euclidean "
+            "or affine-invariant Riemannian. Points are classical MDS (computed here, "
+            "not by pyRiemann). Stress is Kruskal stress-1 of the 2-D embedding."
         ),
         equations=(
-            r"C_i=\widehat{\Sigma}^{\mathrm{LW}}(X_i)",
+            r"C_i=\mathrm{LW}(X_i)\ \mathrm{or}\ \mathrm{OAS}(X_i)\ \mathrm{or}\ \mathrm{SCM}(X_i)",
             r"d_{\mathrm{log}}(A,B)=\lVert\log A-\log B\rVert_F",
             r"d_{\mathrm{R}}(A,B)=\bigl(\sum_k \log^2\lambda_k(A,B)\bigr)^{1/2}",
             r"B=-\frac{1}{2} H\,D^{\circ 2}\,H,\quad "
             r"Y=V_{1:2}\,\mathrm{diag}(\sqrt{\lambda_{1:2}})",
+            r"\mathrm{stress}=\sqrt{\frac{\sum_{i<j}(d_{ij}-\delta_{ij})^2}{\sum_{i<j}d_{ij}^2}}",
             r"C\leftarrow R^{-1/2} C R^{-1/2}",
         ),
     ),
@@ -128,11 +137,14 @@ NOTES: dict[str, MathNote] = {
         summary=(
             "The same covariances are mapped with pyRiemann to the log-Euclidean "
             "tangent space at the training-fold mean, standardized, and classified "
-            "with shrinkage LDA under stratified cross-validation. Chance is "
-            r"$1/K$; majority is the largest class fraction. This is a sanity check, not a BCI."
+            "with shrinkage LDA under stratified cross-validation. A second check "
+            "is pyRiemann MDM (log-Euclidean) fit on training-fold covariances only. "
+            "Chance is "
+            r"$1/K$; majority is the largest class fraction. These are sanity checks, not a BCI."
         ),
         equations=(
             r"\mathbf{v}_i=\mathrm{vech}\bigl(\log C_i-\log\bar C_{\mathrm{train}}\bigr)",
+            r"y=\mathrm{argmin}_k\, d_{\mathrm{log}}(C, \bar C_{k,\mathrm{train}})",
             r"\mathrm{chance}=1/K,\quad "
             r"\mathrm{majority}=\max_k n_k/N",
         ),

@@ -7,13 +7,14 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import plotly.graph_objects as go
 import streamlit as st
 
 from epochlens.adapters.synthetic import make_synthetic
-from epochlens.bands import band_power, window_spectrum
+from epochlens.bands import band_power, band_range_caption, class_mean_band_power, window_spectrum
 from epochlens.cwt import class_relative_scalograms, mean_cwt_power, relative_scalogram
-from epochlens.decoding import logeuclid_lda_cv
-from epochlens.discriminability import pairwise_maps
+from epochlens.decoding import ChanceReport, logeuclid_lda_cv, logeuclid_mdm_cv
+from epochlens.discriminability import peak_map
 from epochlens.explorer.mathnotes import show_math
 from epochlens.explorer.plots import (
     band_topomaps,
@@ -27,12 +28,16 @@ from epochlens.explorer.plots import (
     scalp_scatter,
 )
 from epochlens.explorer.report import DECODE_NOTE, HONESTY, render_report
-from epochlens.ranking import prepare_ranking, session_channel_votes, top_channels
-from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.explorer.style import CLASS_PALETTE, MUTED, apply_plotly_style
+from epochlens.ranking import prepare_ranking, ranking_table, session_channel_votes, top_channels
+from epochlens.riemann import embed_mds, mds_stress, pairwise_distances, session_whiten, trial_covariances
 from epochlens.explorer.summary import dataset_facts
 from epochlens.topo import can_draw_scalp
 from epochlens.waveforms import class_mean_sem
 from epochlens.windows import default_windows
+
+_COV_ESTIMATORS = ("lwf", "oas", "scm")
+_COV_EST_LABEL = {"lwf": "Ledoit–Wolf", "oas": "OAS", "scm": "sample covariance"}
 
 
 st.set_page_config(page_title="EpochLens", layout="wide")
@@ -64,6 +69,104 @@ def _class_spectra(subset, window: tuple[float, float]) -> tuple[np.ndarray, dic
         for cls in np.unique(subset.labels):
             means[int(cls)] = spec[subset.labels == cls].mean(axis=0)
     return freqs, means
+
+
+def _class_band_rows(subset, window: tuple[float, float], class_names: dict) -> list[dict]:
+    power, names = band_power(subset, window)
+    rows: list[dict] = []
+    if subset.labels is None:
+        grand = power.mean(axis=0)
+        for ci, ch in enumerate(subset.ch_names):
+            row = {"channel": ch}
+            for bi, bname in enumerate(names):
+                row[bname] = float(grand[ci, bi])
+            rows.append(row)
+        return rows
+    means, classes = class_mean_band_power(power, subset.labels)
+    for ci, ch in enumerate(subset.ch_names):
+        for ki, cls in enumerate(classes):
+            row = {
+                "channel": ch,
+                "class": class_names.get(int(cls), str(int(cls))),
+            }
+            for bi, bname in enumerate(names):
+                row[bname] = float(means[ki, ci, bi])
+            rows.append(row)
+    return rows
+
+
+def _disc_curve_figure(
+    times: np.ndarray,
+    curve: np.ndarray,
+    peak_t: float,
+    peak_y: float,
+) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=times,
+            y=curve,
+            mode="lines",
+            name="mean |z|",
+            line=dict(color=CLASS_PALETTE[0], width=1.8),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[peak_t],
+            y=[peak_y],
+            mode="markers",
+            name="peak",
+            marker=dict(color=CLASS_PALETTE[1], size=11),
+        )
+    )
+    apply_plotly_style(
+        fig,
+        hovermode="x unified",
+        title="Mean |z| over time (shown channels)",
+        height=280,
+        margin=dict(l=56, r=24, t=56, b=48),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    fig.update_xaxes(title_text="Time (s)")
+    fig.update_yaxes(title_text="mean |z|")
+    return fig
+
+
+def _cv_fold_figure(lda: ChanceReport, mdm: ChanceReport) -> go.Figure:
+    folds = [f"fold {i + 1}" for i in range(lda.n_splits)]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=folds,
+            y=lda.fold_scores,
+            name="LDA",
+            marker_color=CLASS_PALETTE[0],
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=folds,
+            y=mdm.fold_scores,
+            name="MDM",
+            mode="markers+lines",
+            marker=dict(color=CLASS_PALETTE[1], size=9),
+            line=dict(color=CLASS_PALETTE[1], width=1.6),
+        )
+    )
+    fig.add_hline(y=lda.chance, line_dash="dash", line_color=MUTED, annotation_text="chance")
+    fig.add_hline(y=lda.majority, line_dash="dot", line_color=CLASS_PALETTE[4], annotation_text="majority")
+    apply_plotly_style(
+        fig,
+        hovermode="x unified",
+        title="Stratified CV fold accuracy vs chance",
+        height=320,
+        margin=dict(l=56, r=24, t=56, b=48),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        bargap=0.28,
+    )
+    fig.update_yaxes(title_text="Accuracy", range=[0, 1.05])
+    return fig
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -190,7 +293,7 @@ def render() -> None:
     window = (float(t_win0), float(t_win1))
     baseline = (float(batch.tmin), float(t_pre))
     k = min(int(top_k), batch.n_channels)
-    zbatch, scores, picks, ave, disc_times, pairs, bad = prepare_ranking(
+    zbatch, scores, picks, ave, disc_times, pairs, bad, pair_maps = prepare_ranking(
         batch, window, baseline, k
     )
     subset = batch.pick(picks)
@@ -217,8 +320,11 @@ def render() -> None:
         )
         st.caption(
             "Class-mean spectra in the analysis window (ranked channels). "
-            "Log power; shared y-range includes the actual maximum."
+            "Log power; shared y-range includes the actual maximum. "
+            f"Canonical bands: {band_range_caption()}."
         )
+        st.dataframe(_class_band_rows(subset, window, batch.class_names), hide_index=True, width="stretch")
+        st.caption("Class-mean band power in the analysis window (ranked channels).")
         show_math(st, "spectra")
         if int(np.sum(bad)):
             st.caption(f"Excluded {int(np.sum(bad))} bad channel(s) from ranking.")
@@ -282,13 +388,26 @@ def render() -> None:
             power, names = band_power(batch, window)
             grand = power.mean(axis=0)
             st.plotly_chart(
-                band_topomaps(batch.montage_xy, grand, names),
+                band_topomaps(batch.montage_xy, grand, names, ch_names=batch.ch_names),
                 width="stretch",
             )
             st.caption(
-                "Mean band power on the scalp. Each map is scaled independently so spatial "
+                "Grand-mean band power on the scalp. Each map is scaled independently so spatial "
                 "structure stays visible; sensors overlaid."
             )
+            if batch.labels is not None:
+                class_means, classes = class_mean_band_power(power, batch.labels)
+                tabs = st.tabs([str(batch.class_names.get(int(c), c)) for c in classes])
+                for tab, mean in zip(tabs, class_means):
+                    with tab:
+                        st.plotly_chart(
+                            band_topomaps(batch.montage_xy, mean, names, ch_names=batch.ch_names),
+                            width="stretch",
+                        )
+                        st.caption(
+                            "Class-mean band power on the scalp. Each map is scaled independently "
+                            "so spatial structure stays visible; sensors overlaid."
+                        )
             show_math(st, "scalp")
         else:
             st.plotly_chart(
@@ -296,6 +415,7 @@ def render() -> None:
                     np.nan_to_num(scores, neginf=0.0),
                     batch.ch_names,
                     "Channel score used for ranking",
+                    highlight=picks,
                 ),
                 width="stretch",
             )
@@ -307,19 +427,17 @@ def render() -> None:
                 )
 
     elif view == "Discriminability":
-        if ave is None or disc_times is None:
+        if ave is None or disc_times is None or pair_maps is None:
             st.warning("No class labels on this batch.")
         else:
             show = top_channels(scores, min(24, scores.size))
-            t_idx = np.clip(np.searchsorted(zbatch.times, disc_times), 0, zbatch.times.size - 1)
-            maps, _ = pairwise_maps(zbatch.data[:, :, t_idx], batch.labels, method="wilcoxon")
             pair_labels = [
                 f"{batch.class_names.get(int(a), a)} vs {batch.class_names.get(int(b), b)}"
                 for a, b in pairs
             ]
             st.plotly_chart(
                 pairwise_heatmaps(
-                    maps[:, show, :],
+                    pair_maps[:, show, :],
                     disc_times,
                     [batch.ch_names[i] for i in show],
                     pair_labels,
@@ -331,6 +449,20 @@ def render() -> None:
                 "One panel per class pair: Mann–Whitney U → |z| (README shorthand Wilcoxon). "
                 "Channel ranking uses the mean across pairs."
             )
+            ave_peak = np.array(ave, copy=True)
+            ave_peak[bad] = np.nan
+            peak_t, peak_ch, peak_ti = peak_map(ave_peak, disc_times)
+            shown = show if show.size else np.arange(ave.shape[0])
+            curve = np.asarray(ave)[shown].mean(axis=0)
+            st.plotly_chart(
+                _disc_curve_figure(disc_times, curve, peak_t, float(curve[peak_ti])),
+                width="stretch",
+            )
+            st.caption(
+                f"Peak mean |z| at {peak_t:.3f} s on {batch.ch_names[peak_ch]}. "
+                "The curve averages |z| across the channels shown in the heatmaps; "
+                "the marker is the time of the map maximum (all channels except excluded)."
+            )
             show_math(st, "disc")
 
     elif view == "Ranking":
@@ -339,20 +471,36 @@ def render() -> None:
                 np.nan_to_num(scores, neginf=0.0),
                 batch.ch_names,
                 "Channel score used for ranking",
+                highlight=picks,
             ),
             width="stretch",
         )
         if can_draw_scalp(batch.montage_xy):
             st.plotly_chart(
-                scalp_scatter(batch.montage_xy, picks, f"Top {len(picks)} channels"),
+                scalp_scatter(
+                    batch.montage_xy,
+                    picks,
+                    f"Top {len(picks)} channels",
+                    ch_names=batch.ch_names,
+                ),
                 width="stretch",
             )
         st.caption("Highlighted sensors are the visualization subset (waveforms / CWT / spectra).")
         st.write("Top channels:", ", ".join(batch.ch_names[i] for i in picks))
         votes = session_channel_votes(batch, window, baseline, k)
+        st.dataframe(
+            ranking_table(scores, batch.ch_names, picks, votes),
+            hide_index=True,
+            width="stretch",
+        )
         if votes is not None:
             st.plotly_chart(
-                channel_stem(votes.astype(float), batch.ch_names, "Session votes for the visualization subset"),
+                channel_stem(
+                    votes.astype(float),
+                    batch.ch_names,
+                    "Session votes for the visualization subset",
+                    highlight=picks,
+                ),
                 width="stretch",
             )
             st.caption(
@@ -371,10 +519,18 @@ def render() -> None:
                 horizontal=True,
                 help="Both metrics are pyRiemann, full montage. Affine-invariant is the SPD geodesic.",
             )
+            estimator = st.radio(
+                "Covariance estimator",
+                list(_COV_ESTIMATORS),
+                horizontal=True,
+                index=0,
+                help="pyRiemann Covariances: Ledoit–Wolf (lwf), OAS, or sample (scm).",
+            )
             metric = "logeuclid" if metric_label.startswith("log") else "riemann"
-            covs = trial_covariances(batch, window)
+            covs = trial_covariances(batch, window, estimator=estimator)
             with st.spinner("Embedding trial covariances…"):
-                xy0 = embed_mds(pairwise_distances(covs, metric=metric))
+                dist0 = pairwise_distances(covs, metric=metric)
+                xy0 = embed_mds(dist0)
             st.plotly_chart(
                 mds_scatter(
                     xy0,
@@ -385,11 +541,13 @@ def render() -> None:
                 ),
                 width="stretch",
             )
+            st.caption(f"Kruskal stress-1: {mds_stress(dist0, xy0):.3f} (0 is exact).")
             n_ses = 0 if batch.sessions is None else int(np.unique(batch.sessions).size)
             if n_ses >= 2:
                 with st.spinner("Session whitening…"):
                     whitened = session_whiten(covs, batch.sessions, metric=metric)
-                    xy1 = embed_mds(pairwise_distances(whitened, metric=metric))
+                    dist1 = pairwise_distances(whitened, metric=metric)
+                    xy1 = embed_mds(dist1)
                 st.plotly_chart(
                     mds_scatter(
                         xy1,
@@ -400,11 +558,13 @@ def render() -> None:
                     ),
                     width="stretch",
                 )
+                st.caption(f"Kruskal stress-1 after whitening: {mds_stress(dist1, xy1):.3f}.")
+            est_name = _COV_EST_LABEL.get(estimator, estimator)
             st.caption(
                 "Covariance geometry uses the full montage (all channels). "
                 "Ranked-channel selection is not used. "
-                "Covariances, distances, and session whitening are pyRiemann "
-                "(Ledoit–Wolf; log-Euclidean or affine-invariant Riemann). "
+                f"Covariances, distances, and session whitening are pyRiemann "
+                f"({est_name}; log-Euclidean or affine-invariant Riemann). "
                 "Points are classical MDS."
             )
             show_math(st, "mds")
@@ -413,19 +573,31 @@ def render() -> None:
         if batch.labels is None:
             st.warning("No class labels on this batch.")
         else:
-            st.caption(DECODE_NOTE + " Ranked-channel selection is not used. Not a BCI.")
+            st.caption(
+                DECODE_NOTE
+                + " Ranked-channel selection is not used. "
+                "Log-Euclidean MDM is a second chance check. Not a BCI."
+            )
             try:
-                report = logeuclid_lda_cv(batch, window)
+                covs = trial_covariances(batch, window)
+                report = logeuclid_lda_cv(batch, window, covs=covs)
+                mdm = logeuclid_mdm_cv(batch, window, covs=covs)
             except ValueError as exc:
                 st.error(str(exc))
             else:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("CV accuracy", f"{100 * report.accuracy:.1f}%")
-                c2.metric("Chance", f"{100 * report.chance:.0f}%")
-                c3.metric("Majority", f"{100 * report.majority:.0f}%")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("LDA CV accuracy", f"{100 * report.accuracy:.1f}%")
+                c2.metric("MDM CV accuracy", f"{100 * mdm.accuracy:.1f}%")
+                c3.metric("Chance", f"{100 * report.chance:.0f}%")
+                c4.metric("Majority", f"{100 * report.majority:.0f}%")
+                st.plotly_chart(_cv_fold_figure(report, mdm), width="stretch")
                 st.write(
                     f"{report.method} · {report.n_splits}-fold · {report.n_features} features · "
                     f"{report.n_trials} trials · full montage (all channels)"
+                )
+                st.write(
+                    f"{mdm.method} · {mdm.n_splits}-fold · {mdm.n_trials} trials · "
+                    "log-Euclidean MDM (another chance check, not a BCI)"
                 )
                 show_math(st, "chance")
 

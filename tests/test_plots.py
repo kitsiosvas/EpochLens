@@ -117,7 +117,7 @@ def test_streamlit_helpers_cover_readme_plots():
 
     batch = make_synthetic(n_channels=8, trials_per_class=6, seed=7)
     window, baseline = (0.6, 1.4), (0.0, 0.4)
-    zbatch, scores, picks, ave, disc_times, pairs, _bad = prepare_ranking(
+    zbatch, scores, picks, ave, disc_times, pairs, _bad, _maps = prepare_ranking(
         batch, window, baseline, 4
     )
     subset = batch.pick(picks)
@@ -139,7 +139,9 @@ def test_streamlit_helpers_cover_readme_plots():
     maps, _ = pairwise_maps(zbatch.data[:, :, :8], batch.labels)
     labels = [f"{a} vs {b}" for a, b in pairs]
     assert isinstance(pairwise_heatmaps(maps[:, :4, :8], np.arange(8), subset.ch_names[:4], labels, "pairs"), go.Figure)
-    assert isinstance(channel_stem(np.nan_to_num(scores, neginf=0.0), batch.ch_names, "rank"), go.Figure)
+    stem = channel_stem(np.nan_to_num(scores, neginf=0.0), batch.ch_names, "rank")
+    assert isinstance(stem, go.Figure)
+    assert list(stem.data[0].x) == list(batch.ch_names)
     assert isinstance(scalp_scatter(batch.montage_xy, picks, "scalp"), go.Figure)
 
     covs = trial_covariances(batch, window)

@@ -13,18 +13,25 @@ from epochlens.types import EpochBatch
 from epochlens.bands import band_power, window_spectrum
 from epochlens.cwt import class_relative_scalograms, energy_channel_score, mean_cwt_power, relative_scalogram
 from epochlens.decoding import logeuclid_lda_cv
-from epochlens.discriminability import pairwise_maps
 from epochlens.explorer.mathnotes import html_block
 from epochlens.explorer.summary import facts_line
 from epochlens.explorer.style import (
+    BAND_GLYPH,
     CLASS_PALETTE,
     DPI,
     INK,
     MUTED,
+    PAPER,
     PICK,
+    RULE,
     REPORT_CSS,
     WINDOW_FILL,
     apply_matplotlib_rc,
+    clipped_bands,
+    head_axis_ranges,
+    head_disk,
+    power_cmap,
+    zabs_cmap,
 )
 from epochlens.ranking import prepare_ranking, session_channel_votes, top_channels
 from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
@@ -44,7 +51,7 @@ DECODE_NOTE = (
 
 def _png(fig) -> str:
     buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=DPI, bbox_inches="tight", facecolor="white")
+    fig.savefig(buf, format="png", dpi=DPI, bbox_inches="tight", facecolor=PAPER)
     fig.clf()
     import matplotlib.pyplot as plt
 
@@ -65,12 +72,13 @@ def _class_label(key, class_names: dict) -> str:
 
 
 def _head_outline(ax, xy, *, fill=None) -> None:
-    from matplotlib.patches import Circle
+    from matplotlib.patches import Arc, Circle
 
-    xy = np.asarray(xy, dtype=np.float64)
-    located = xy[located_mask(xy)]
-    center = located.mean(axis=0)
-    radius = float(np.max(np.linalg.norm(located - center, axis=1)) * 1.15)
+    disk = head_disk(xy)
+    if disk is None:
+        return
+    (cx, cy), radius = disk
+    center = (cx, cy)
     ax.add_patch(
         Circle(
             center,
@@ -81,35 +89,91 @@ def _head_outline(ax, xy, *, fill=None) -> None:
             zorder=5,
         )
     )
-    nose_y = center[1] + radius
+    nose_y = cy + radius
     w = 0.14 * radius
     h = 0.16 * radius
     ax.plot(
-        [center[0] - w, center[0], center[0] + w],
+        [cx - w, cx, cx + w],
         [nose_y - 0.02 * radius, nose_y + h, nose_y - 0.02 * radius],
         color=INK,
         lw=1.15,
         zorder=5,
         solid_capstyle="round",
     )
-    ax.set_xlim(center[0] - 1.25 * radius, center[0] + 1.25 * radius)
-    ax.set_ylim(center[1] - 1.2 * radius, center[1] + 1.45 * radius)
+    ear_w, ear_h = 0.28 * radius, 0.44 * radius
+    ax.add_patch(
+        Arc(
+            (cx - radius, cy),
+            ear_w,
+            ear_h,
+            theta1=90,
+            theta2=270,
+            edgecolor=INK,
+            lw=1.15,
+            zorder=5,
+        )
+    )
+    ax.add_patch(
+        Arc(
+            (cx + radius, cy),
+            ear_w,
+            ear_h,
+            theta1=270,
+            theta2=90,
+            edgecolor=INK,
+            lw=1.15,
+            zorder=5,
+        )
+    )
+    ranges = head_axis_ranges(xy)
+    if ranges is not None:
+        ax.set_xlim(*ranges[0])
+        ax.set_ylim(*ranges[1])
 
 
 def _clip_topo(im, ax, xy) -> None:
     from matplotlib.patches import Circle
 
-    xy = np.asarray(xy, dtype=np.float64)
-    located = xy[located_mask(xy)]
-    center = located.mean(axis=0)
-    radius = float(np.max(np.linalg.norm(located - center, axis=1)) * 1.15)
-    im.set_clip_path(Circle(center, radius, transform=ax.transData))
+    disk = head_disk(xy)
+    if disk is None:
+        return
+    (cx, cy), radius = disk
+    im.set_clip_path(Circle((cx, cy), radius, transform=ax.transData))
 
 
 def _window_guides(ax, window: tuple[float, float]) -> None:
     ax.axvspan(window[0], window[1], color=WINDOW_FILL, alpha=0.7, lw=0, zorder=0)
     ax.axvline(window[0], color=MUTED, lw=0.7, ls="--", zorder=1)
     ax.axvline(window[1], color=MUTED, lw=0.7, ls="--", zorder=1)
+
+
+def _band_guides(ax, fmin: float, fmax: float, *, labels: bool = False) -> None:
+    bands = clipped_bands(fmin, fmax)
+    for i, (name, a, b) in enumerate(bands):
+        ax.axvspan(
+            a,
+            b,
+            color=WINDOW_FILL if i % 2 == 0 else RULE,
+            alpha=0.55 if i % 2 == 0 else 0.35,
+            lw=0,
+            zorder=0,
+        )
+        if labels:
+            ax.text(
+                0.5 * (a + b),
+                0.97,
+                BAND_GLYPH.get(name, name),
+                transform=ax.get_xaxis_transform(),
+                ha="center",
+                va="top",
+                color=MUTED,
+                fontsize=8,
+                zorder=4,
+            )
+    edges = sorted({lo for _, lo, _ in bands} | {hi for _, _, hi in bands})
+    for x in edges:
+        if fmin < x < fmax:
+            ax.axvline(x, color=MUTED, lw=0.6, ls=":", zorder=1)
 
 
 def _index_for_times(times: np.ndarray, selected: np.ndarray) -> np.ndarray:
@@ -143,34 +207,76 @@ def _scalogram_figure(rel, times, freqs, ch_names, window, max_channels: int = 8
         ax.axvline(window[1], color=INK, lw=0.8, ls="--")
         ax.set_title(ch_names[i], fontsize=9)
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Hz")
+        ax.set_ylabel("Frequency (Hz)")
     if im is not None:
-        fig.colorbar(im, ax=axes, fraction=0.02, pad=0.02, label="relative power")
+        fig.colorbar(im, ax=axes, fraction=0.02, pad=0.02, label="rel. power")
     return fig
 
 
 def _stem_figure(scores, ch_names, picks=None):
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(10.2, 3.1), layout="constrained")
-    x = np.arange(1, len(scores) + 1)
-    ax.bar(x, scores, color="#8A8175", width=0.8)
+    fig, ax = plt.subplots(figsize=(10.2, 3.35), layout="constrained")
+    names = list(ch_names)
+    n = len(scores)
+    x = np.arange(n)
+    colors = [MUTED] * n
     if picks is not None:
-        ax.bar(x[np.asarray(picks)], scores[np.asarray(picks)], color=PICK, width=0.8)
-    ax.set_xlabel("Channel index")
+        for i in np.asarray(picks, dtype=int):
+            colors[int(i)] = PICK
+    ax.bar(x, scores, color=colors, width=0.72, linewidth=0)
+    ax.set_xticks(x)
+    rot = 40 if n <= 16 else 90
+    fs = 8 if n <= 16 else (6 if n <= 32 else 5)
+    ax.set_xticklabels(names, rotation=rot, ha="right", fontsize=fs)
+    ax.set_xlabel("")
     ax.set_ylabel("Score")
+    ax.axhline(0, color=RULE, lw=0.7, zorder=0)
     return fig
 
 
 def _mds_figure(xy, labels, sessions, class_names):
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
+    from matplotlib.patches import Polygon
 
-    fig, ax = plt.subplots(figsize=(5.7, 5.3), layout="constrained")
+    fig, ax = plt.subplots(figsize=(5.9, 5.4), layout="constrained")
+    ax.axhline(0, color=RULE, lw=0.8, zorder=0)
+    ax.axvline(0, color=RULE, lw=0.8, zorder=0)
     markers = ["o", "s", "D", "^"]
     sessions = np.ones(len(labels), dtype=int) if sessions is None else sessions
     uniq_cls = np.unique(labels)
     uniq_ses = np.unique(sessions)
+    global_span = float(np.max(np.ptp(xy, axis=0)))
+    if global_span > 0:
+        try:
+            from scipy.spatial import ConvexHull
+        except ImportError:
+            ConvexHull = None  # type: ignore[misc, assignment]
+        if ConvexHull is not None:
+            for cls in uniq_cls:
+                pts = xy[labels == cls]
+                if pts.shape[0] < 6:
+                    continue
+                try:
+                    hull = ConvexHull(pts)
+                except Exception:
+                    continue
+                area = float(getattr(hull, "volume", 0.0))
+                if area > 0.40 * global_span * global_span:
+                    continue
+                color = _class_color(cls, int(cls))
+                ax.add_patch(
+                    Polygon(
+                        pts[hull.vertices],
+                        closed=True,
+                        facecolor=color,
+                        edgecolor=color,
+                        alpha=0.10,
+                        lw=0.8,
+                        zorder=1,
+                    )
+                )
     for cls in uniq_cls:
         color = _class_color(cls, int(cls))
         for ses in uniq_ses:
@@ -182,8 +288,8 @@ def _mds_figure(xy, labels, sessions, class_names):
                 xy[m, 1],
                 marker=markers[int(ses) % len(markers)],
                 c=color,
-                s=38,
-                alpha=0.88,
+                s=42,
+                alpha=0.90,
                 edgecolors="none",
                 zorder=3,
             )
@@ -197,7 +303,7 @@ def _mds_figure(xy, labels, sessions, class_names):
             marker="o",
             color="none",
             markerfacecolor=_class_color(cls, int(cls)),
-            markersize=7,
+            markersize=8,
             label=_class_label(cls, class_names),
         )
         for cls in uniq_cls
@@ -210,12 +316,12 @@ def _mds_figure(xy, labels, sessions, class_names):
                 marker=markers[i % len(markers)],
                 color="none",
                 markerfacecolor=INK,
-                markersize=7,
+                markersize=8,
                 label=f"session {ses}",
             )
             for i, ses in enumerate(uniq_ses)
         )
-    ax.legend(handles=handles, fontsize=7, loc="best", frameon=False)
+    ax.legend(handles=handles, fontsize=8, loc="best", frameon=True, fancybox=False, edgecolor=RULE, facecolor=PAPER)
     return fig
 
 
@@ -244,14 +350,14 @@ def _traces_figure(times, means, sems, class_names, ch_names, window):
             e = sems[key][i]
             color = _class_color(key, k)
             label = _class_label(key, class_names)
-            ax.plot(times, y, color=color, lw=1.35, label=label if i == 0 else None, zorder=2)
+            ax.plot(times, y, color=color, lw=1.35, label=label if i == 0 else None, zorder=3)
             ax.fill_between(times, y - e, y + e, color=color, alpha=0.28, linewidth=0, zorder=2)
         ax.set_title(ch_names[i], fontsize=9)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("baseline z")
         ax.set_ylim(-ymax, ymax)
         if i == 0:
-            ax.legend(fontsize=7, loc="best", frameon=False)
+            ax.legend(fontsize=8, loc="best", frameon=False)
     return fig
 
 
@@ -278,18 +384,27 @@ def _psd_figure(freqs, spec_means, class_names, ch_names):
         if i >= n_ch:
             ax.axis("off")
             continue
+        _band_guides(ax, float(freqs[0]), fmax_show, labels=True)
         for k, key in enumerate(keys):
             color = _class_color(key, k)
             label = _class_label(key, class_names)
-            ax.plot(freqs, spec_means[key][i], color=color, lw=1.35, label=label if i == 0 else None)
+            ax.plot(freqs, spec_means[key][i], color=color, lw=1.35, label=label if i == 0 else None, zorder=3)
         ax.set_title(ch_names[i], fontsize=9)
-        ax.set_xlabel("Hz")
+        ax.set_xlabel("Frequency (Hz)")
         ax.set_ylabel("Power")
         ax.set_xlim(freqs[0], fmax_show)
         ax.set_yscale("log")
         ax.set_ylim(ymin, ymax)
         if i == 0:
-            ax.legend(fontsize=7, loc="best", frameon=False)
+            ax.legend(
+                fontsize=8,
+                loc="lower left",
+                frameon=True,
+                fancybox=False,
+                edgecolor=RULE,
+                facecolor=PAPER,
+                framealpha=0.92,
+            )
     return fig
 
 
@@ -335,9 +450,9 @@ def _ranking_table(ch_names, scores, picks, bad, *, labeled: bool = False) -> st
 def _folds_figure(report):
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(6.0, 2.7), layout="constrained")
+    fig, ax = plt.subplots(figsize=(6.4, 2.7), layout="constrained")
     x = np.arange(1, report.fold_scores.size + 1)
-    ax.bar(x, 100.0 * report.fold_scores, color="#6B7C8A", width=0.68)
+    ax.bar(x, 100.0 * report.fold_scores, color=CLASS_PALETTE[0], width=0.68, linewidth=0)
     ax.axhline(
         100.0 * report.chance,
         color=PICK,
@@ -346,9 +461,15 @@ def _folds_figure(report):
         label=f"chance {100 * report.chance:.0f}%",
     )
     ax.set_ylim(0, max(100.0, 100.0 * report.fold_scores.max() + 8))
+    ax.set_xticks(x)
     ax.set_xlabel("Fold")
     ax.set_ylabel("Accuracy (%)")
-    ax.legend(fontsize=7, loc="upper right", frameon=False)
+    ax.legend(
+        fontsize=8,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        frameon=False,
+    )
     return fig
 
 
@@ -391,7 +512,7 @@ def _pairwise_maps_figure(maps, times, ch_names, pair_labels):
             xedges,
             yedges,
             maps[i],
-            cmap="magma",
+            cmap=zabs_cmap(),
             vmin=0,
             vmax=vmax,
             shading="auto",
@@ -402,11 +523,9 @@ def _pairwise_maps_figure(maps, times, ch_names, pair_labels):
         ax.set_yticks(yticks)
         ax.yaxis.set_major_locator(FixedLocator(yticks))
         ax.yaxis.set_minor_locator(NullLocator())
+        ax.set_yticklabels(list(ch_names), fontsize=7)
         if i % cols == 0:
             ax.set_ylabel("Channel")
-            ax.set_yticklabels(list(ch_names), fontsize=7)
-        else:
-            ax.set_yticklabels([])
     if im is not None:
         fig.colorbar(im, ax=axes, fraction=0.02, pad=0.02, label="|z|")
     return fig
@@ -433,8 +552,9 @@ def _topo_figure(xy, values, highlight=None, vmin=None, vmax=None):
             xy[h, 0],
             xy[h, 1],
             facecolors="none",
-            edgecolors=INK,
+            edgecolors=PICK,
             s=64,
+            linewidths=1.2,
             zorder=4,
         )
     _head_outline(ax, xy)
@@ -461,14 +581,16 @@ def _band_topo_figure(xy, band_means, band_names):
             continue
         Xi, Yi, Zi = interpolate_topo(xy, band_means[:, i])
         vmax = max(float(np.nanpercentile(np.abs(Zi), 98)), 1e-9)
-        im = ax.pcolormesh(Xi, Yi, Zi, shading="auto", cmap="inferno", vmin=0, vmax=vmax, zorder=2)
+        im = ax.pcolormesh(Xi, Yi, Zi, shading="auto", cmap=power_cmap(), vmin=0, vmax=vmax, zorder=2)
         _clip_topo(im, ax, xy)
-        ax.scatter(xy[ok, 0], xy[ok, 1], c="#f3eee4", s=7, zorder=6)
+        ax.scatter(xy[ok, 0], xy[ok, 1], c="#f3eee4", s=16, edgecolors=INK, linewidths=0.5, zorder=6)
         _head_outline(ax, xy)
         ax.set_aspect("equal")
-        ax.axis("off")
         ax.set_title(band_names[i], fontsize=10)
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.axis("off")
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03, shrink=0.82)
+        cbar.ax.tick_params(labelsize=7)
+        cbar.set_label("")
     return fig
 
 
@@ -502,11 +624,11 @@ def _class_scalogram_figure(rel_by_class, times, freqs, ch_names, class_names, w
             if r == 0:
                 ax.set_title(_class_label(key, class_names), fontsize=9)
             if c == 0:
-                ax.set_ylabel(ch_names[r], fontsize=8)
+                ax.set_ylabel(f"{ch_names[r]}\nFrequency (Hz)", fontsize=8)
             if r == n_ch - 1:
-                ax.set_xlabel("s", fontsize=8)
+                ax.set_xlabel("Time (s)", fontsize=8)
     if im is not None:
-        fig.colorbar(im, ax=axes, fraction=0.02, pad=0.02, label="relative power")
+        fig.colorbar(im, ax=axes, fraction=0.02, pad=0.02, label="rel. power")
     return fig
 
 
@@ -542,7 +664,7 @@ def render_report(
     matplotlib.use("Agg")
     apply_matplotlib_rc()
 
-    zbatch, scores, picks, ave, disc_times, pairs, bad = prepare_ranking(
+    zbatch, scores, picks, ave, disc_times, pairs, bad, pair_maps = prepare_ranking(
         batch, window, baseline, top_k
     )
     k = max(int(picks.size), 1)
@@ -571,7 +693,7 @@ def render_report(
         (
             "Class-mean waveforms (ranked channels, baseline z-scored)",
             _png(_traces_figure(zsub.times, means, sems, batch.class_names, zsub.ch_names, window)),
-            "Look for class separation in the shaded analysis window. Traces are baseline z-scored means ± SEM.",
+            "Look for class separation in the shaded analysis window. Traces are baseline z-scored means ± SEM (class-colored bands).",
             "waveforms",
         )
     )
@@ -586,7 +708,7 @@ def render_report(
         (
             "Class-mean spectra in the analysis window",
             _png(_psd_figure(spec_freqs, spec_means, batch.class_names, subset.ch_names)),
-            "Log power in the analysis window. Shared log scale keeps quiet channels from looking structured.",
+            "Log power in the analysis window. Shared log scale keeps quiet channels from looking structured. Vertical guides mark θ, α, β, and γ.",
             "spectra",
         )
     )
@@ -594,7 +716,7 @@ def render_report(
         (
             "Relative CWT scalograms (ranked channels)",
             _png(_scalogram_figure(rel, cwt_times, freqs, subset.ch_names, window, max_channels=k)),
-            "Relative power versus the baseline window (diverging scale). Dashed lines mark the analysis window.",
+            "Relative power versus the baseline window (diverging scale; 0 = baseline). Dashed lines mark the analysis window.",
             "cwt",
         )
     )
@@ -654,21 +776,20 @@ def render_report(
             for a, b in pairs
         )
         show = top_channels(scores, min(24, scores.size))
-        t_idx = _index_for_times(zbatch.times, disc_times)
-        pair_maps, _ = pairwise_maps(zbatch.data[:, :, t_idx], batch.labels, method="wilcoxon")
         pair_labels = [
             f"{_class_label(a, batch.class_names)} vs {_class_label(b, batch.class_names)}"
             for a, b in pairs
         ]
-        sections.append(
-            (
-                f"Pairwise discriminability maps ({pair_txt})",
-                _png(_pairwise_maps_figure(pair_maps[:, show, :], disc_times, [batch.ch_names[i] for i in show], pair_labels)),
-                "One panel per class pair: Mann–Whitney U converted to |z| (README shorthand Wilcoxon). "
-                "Time is on the x-axis. Ranking uses the mean across pairs.",
-                "disc",
+        if pair_maps is not None:
+            sections.append(
+                (
+                    f"Pairwise discriminability maps ({pair_txt})",
+                    _png(_pairwise_maps_figure(pair_maps[:, show, :], disc_times, [batch.ch_names[i] for i in show], pair_labels)),
+                    "One panel per class pair: Mann–Whitney U converted to |z| (README shorthand Wilcoxon). "
+                    "Time is on the x-axis. Ranking uses the mean across pairs.",
+                    "disc",
+                )
             )
-        )
         sections.append(
             (
                 "Discriminability channel score",
@@ -679,7 +800,7 @@ def render_report(
                         picks=picks,
                     )
                 ),
-                "Mean pairwise |z| used to pick the visualization subset for waveforms / CWT / spectra (highlighted). MDS uses the full montage.",
+                "Mean pairwise |z| used to pick the visualization subset for waveforms / CWT / spectra (highlighted bars). MDS uses the full montage.",
                 "ranking",
             )
         )

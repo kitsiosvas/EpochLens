@@ -83,3 +83,27 @@ def embed_mds(distances: np.ndarray, n_components: int = 2) -> np.ndarray:
     order = np.argsort(w)[::-1]
     w = np.maximum(w[order[:n_components]], 0.0)
     return v[:, order[:n_components]] * np.sqrt(w)
+
+
+def mds_stress(distances: np.ndarray, xy: np.ndarray) -> float:
+    """Kruskal stress-1 of a classical MDS embedding.
+
+    ``distances`` is the original pairwise matrix; ``xy`` is the 2-D (or
+    ``n``-D) embedding. Returns a value in ``[0, inf)``.
+    """
+    d = np.asarray(distances, dtype=np.float64)
+    xy = np.asarray(xy, dtype=np.float64)
+    if d.ndim != 2 or d.shape[0] != d.shape[1]:
+        raise ValueError("distances must be a square matrix")
+    if xy.ndim != 2 or xy.shape[0] != d.shape[0]:
+        raise ValueError("xy rows must match distances")
+    n = d.shape[0]
+    if n < 2:
+        return 0.0
+    delta = np.sqrt(np.sum((xy[:, None, :] - xy[None, :, :]) ** 2, axis=-1))
+    iu = np.triu_indices(n, k=1)
+    num = float(np.sum((d[iu] - delta[iu]) ** 2))
+    den = float(np.sum(d[iu] ** 2))
+    if den <= 0.0:
+        return 0.0 if num <= 0.0 else float("inf")
+    return float(np.sqrt(num / den))

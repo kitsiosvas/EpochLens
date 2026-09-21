@@ -32,6 +32,33 @@ def chance_level(n_classes: int) -> float:
     return 1.0 / float(n_classes)
 
 
+def _cv_covs_and_labels(
+    batch: EpochBatch,
+    window: tuple[float, float],
+    n_splits: int,
+    random_state: int,
+    covs: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray, StratifiedKFold, int, np.ndarray, int]:
+    if batch.labels is None:
+        raise ValueError("labels required")
+    y = np.asarray(batch.labels)
+    classes, counts = np.unique(y, return_counts=True)
+    n_classes = int(classes.size)
+    if n_classes < 2:
+        raise ValueError("need at least two classes")
+    n_splits = min(int(n_splits), int(counts.min()))
+    if n_splits < 2:
+        raise ValueError("need at least two trials per class for CV")
+    if covs is None:
+        covs = trial_covariances(batch, window)
+    else:
+        covs = np.asarray(covs, dtype=np.float64)
+        if covs.shape[0] != y.size:
+            raise ValueError("covs must have one matrix per trial")
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    return covs, y, skf, n_classes, counts, n_splits
+
+
 def _logeuclid_lda_fold(
     covs_train: np.ndarray,
     covs_test: np.ndarray,
@@ -49,31 +76,36 @@ def _logeuclid_lda_fold(
     return float(clf.score(x_test, y_test)), int(x_train.shape[1])
 
 
+def _logeuclid_mdm_fold(
+    covs_train: np.ndarray,
+    covs_test: np.ndarray,
+    y_train: np.ndarray,
+    y_test: np.ndarray,
+) -> float:
+    from pyriemann.classification import MDM
+
+    clf = MDM(metric="logeuclid")
+    clf.fit(covs_train, y_train)
+    return float(clf.score(covs_test, y_test))
+
+
 def logeuclid_lda_cv(
     batch: EpochBatch,
     window: tuple[float, float],
     *,
     n_splits: int = 5,
     random_state: int = 0,
+    covs: np.ndarray | None = None,
 ) -> ChanceReport:
     """Stratified CV LDA on pyRiemann log-Euclidean tangent space.
 
     Accuracy is a sanity check against chance, not a decoder claim.
     Tangent-space maps are fit on the training fold only.
+    Pass ``covs`` to reuse trial covariances already estimated for another check.
     """
-    if batch.labels is None:
-        raise ValueError("labels required")
-    y = np.asarray(batch.labels)
-    classes, counts = np.unique(y, return_counts=True)
-    n_classes = int(classes.size)
-    if n_classes < 2:
-        raise ValueError("need at least two classes")
-    n_splits = min(int(n_splits), int(counts.min()))
-    if n_splits < 2:
-        raise ValueError("need at least two trials per class for CV")
-
-    covs = trial_covariances(batch, window)
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    covs, y, skf, n_classes, counts, n_splits = _cv_covs_and_labels(
+        batch, window, n_splits, random_state, covs
+    )
     scores = []
     n_features = 0
     for train, test in skf.split(covs, y):
@@ -90,4 +122,35 @@ def logeuclid_lda_cv(
         n_trials=int(y.size),
         n_features=n_features,
         method="logeuclid-LDA",
+    )
+
+
+def logeuclid_mdm_cv(
+    batch: EpochBatch,
+    window: tuple[float, float],
+    *,
+    n_splits: int = 5,
+    random_state: int = 0,
+    covs: np.ndarray | None = None,
+) -> ChanceReport:
+    """Stratified CV pyRiemann MDM (log-Euclidean). Not a BCI.
+
+    Fit on training-fold covariances only. Pass the same ``covs`` used for
+    :func:`logeuclid_lda_cv` so both checks share one geometry.
+    """
+    covs, y, skf, n_classes, counts, n_splits = _cv_covs_and_labels(
+        batch, window, n_splits, random_state, covs
+    )
+    scores = [_logeuclid_mdm_fold(covs[train], covs[test], y[train], y[test]) for train, test in skf.split(covs, y)]
+    fold = np.asarray(scores, dtype=np.float64)
+    return ChanceReport(
+        accuracy=float(fold.mean()),
+        chance=chance_level(n_classes),
+        majority=float(counts.max() / counts.sum()),
+        n_classes=n_classes,
+        n_splits=n_splits,
+        fold_scores=fold,
+        n_trials=int(y.size),
+        n_features=0,
+        method="logeuclid-MDM",
     )

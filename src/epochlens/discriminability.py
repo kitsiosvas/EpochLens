@@ -74,3 +74,22 @@ def aggregate_pairs(maps: np.ndarray, how: str = "mean") -> np.ndarray:
     if how == "max":
         return maps.max(axis=0)
     raise ValueError("how must be 'mean' or 'max'")
+
+
+def peak_map(ave: np.ndarray, times: np.ndarray) -> tuple[float, int, int]:
+    """Channel and time of the maximum mean |z|.
+
+    ``ave`` is ``(n_channels, n_times)``. Returns ``(peak_time, channel_index,
+    time_index)``. Non-finite entries are ignored.
+    """
+    ave = np.asarray(ave, dtype=np.float64)
+    times = np.asarray(times, dtype=np.float64)
+    if ave.ndim != 2:
+        raise ValueError("ave must be (n_channels, n_times)")
+    if times.shape != (ave.shape[1],):
+        raise ValueError("times must match ave's time axis")
+    if not np.any(np.isfinite(ave)):
+        raise ValueError("ave has no finite values")
+    filled = np.where(np.isfinite(ave), ave, -np.inf)
+    ch, t = np.unravel_index(int(np.argmax(filled)), ave.shape)
+    return float(times[int(t)]), int(ch), int(t)

@@ -13,11 +13,11 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 - Class-mean waveforms (baseline z-scored) ± SEM
 - Class-mean spectra in the analysis window (log power)
 - Batched Morlet CWT scalograms (power = `|coeff|²`)
-- Band-power topography (θ / α / β / γ)
+- Band-power topography (θ / α / β / γ; grand mean and per class)
 - Pairwise discriminability maps (Mann–Whitney |z|; README shorthand Wilcoxon)
 - Channel ranking (table + JSON sidecar on HTML export)
-- Log-Euclidean / Riemannian trial embeddings, including session whitening ([pyRiemann](https://pyriemann.readthedocs.io/))
-- Optional cross-validated log-Euclid tangent-space LDA vs chance (sanity check, not a BCI)
+- Log-Euclidean / Riemannian trial embeddings, including session whitening ([pyRiemann](https://pyriemann.readthedocs.io/); covariance estimator `lwf` / `oas` / `scm`)
+- Optional cross-validated log-Euclid tangent-space LDA and MDM vs chance (sanity check, not a BCI)
 
 Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
 
