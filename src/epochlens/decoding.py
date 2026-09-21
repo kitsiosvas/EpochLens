@@ -32,12 +32,21 @@ def chance_level(n_classes: int) -> float:
     return 1.0 / float(n_classes)
 
 
-def _vectorize_logm(covs: np.ndarray) -> np.ndarray:
-    from epochlens.riemann import _logm
+def _logeuclid_lda_fold(
+    covs_train: np.ndarray,
+    covs_test: np.ndarray,
+    y_train: np.ndarray,
+    y_test: np.ndarray,
+) -> tuple[float, int]:
+    from pyriemann.tangentspace import TangentSpace
 
-    logs = np.stack([_logm(c) for c in covs], axis=0)
-    iu = np.triu_indices(covs.shape[1])
-    return logs[:, iu[0], iu[1]]
+    ts = TangentSpace(metric="logeuclid")
+    scaler = StandardScaler()
+    clf = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
+    x_train = scaler.fit_transform(ts.fit_transform(covs_train))
+    x_test = scaler.transform(ts.transform(covs_test))
+    clf.fit(x_train, y_train)
+    return float(clf.score(x_test, y_test)), int(x_train.shape[1])
 
 
 def logeuclid_lda_cv(
@@ -47,9 +56,10 @@ def logeuclid_lda_cv(
     n_splits: int = 5,
     random_state: int = 0,
 ) -> ChanceReport:
-    """Stratified CV LDA on vectorized log-Euclidean covariances.
+    """Stratified CV LDA on pyRiemann log-Euclidean tangent space.
 
     Accuracy is a sanity check against chance, not a decoder claim.
+    Tangent-space maps are fit on the training fold only.
     """
     if batch.labels is None:
         raise ValueError("labels required")
@@ -63,16 +73,12 @@ def logeuclid_lda_cv(
         raise ValueError("need at least two trials per class for CV")
 
     covs = trial_covariances(batch, window)
-    x = _vectorize_logm(covs)
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     scores = []
-    for train, test in skf.split(x, y):
-        scaler = StandardScaler()
-        x_train = scaler.fit_transform(x[train])
-        x_test = scaler.transform(x[test])
-        clf = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
-        clf.fit(x_train, y[train])
-        scores.append(float(clf.score(x_test, y[test])))
+    n_features = 0
+    for train, test in skf.split(covs, y):
+        acc, n_features = _logeuclid_lda_fold(covs[train], covs[test], y[train], y[test])
+        scores.append(acc)
     fold = np.asarray(scores, dtype=np.float64)
     return ChanceReport(
         accuracy=float(fold.mean()),
@@ -82,6 +88,6 @@ def logeuclid_lda_cv(
         n_splits=n_splits,
         fold_scores=fold,
         n_trials=int(y.size),
-        n_features=int(x.shape[1]),
+        n_features=n_features,
         method="logeuclid-LDA",
     )

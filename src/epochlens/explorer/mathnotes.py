@@ -110,14 +110,13 @@ NOTES: dict[str, MathNote] = {
     ),
     "mds": MathNote(
         summary=(
-            "Each trial is a trace-normalized covariance of the analysis window "
-            "(all channels), with a small ridge. Distances are log-Euclidean "
-            "(Frobenius of matrix logs) or affine-invariant Riemannian "
-            "(generalized eigenvalues). Points are classical MDS. "
-            "Session whitening removes the per-session mean in the chosen metric."
+            "Each trial is a Ledoit–Wolf covariance of the analysis window "
+            "(all channels), estimated with pyRiemann. Distances and session "
+            "whitening also come from pyRiemann: log-Euclidean or affine-invariant "
+            "Riemannian. Points are classical MDS (computed here, not by pyRiemann)."
         ),
         equations=(
-            r"C_i=\frac{X_i X_i^\top}{T\,\mathrm{tr}(X_i X_i^\top/T)}+\lambda I",
+            r"C_i=\widehat{\Sigma}^{\mathrm{LW}}(X_i)",
             r"d_{\mathrm{log}}(A,B)=\lVert\log A-\log B\rVert_F",
             r"d_{\mathrm{R}}(A,B)=\bigl(\sum_k \log^2\lambda_k(A,B)\bigr)^{1/2}",
             r"B=-\frac{1}{2} H\,D^{\circ 2}\,H,\quad "
@@ -127,13 +126,13 @@ NOTES: dict[str, MathNote] = {
     ),
     "chance": MathNote(
         summary=(
-            "The same covariances are mapped to the upper triangle of "
-            r"$\log C$, standardized, and classified with shrinkage LDA under "
-            "stratified cross-validation. Chance is $1/K$; majority is the "
-            "largest class fraction. This is a sanity check, not a BCI."
+            "The same covariances are mapped with pyRiemann to the log-Euclidean "
+            "tangent space at the training-fold mean, standardized, and classified "
+            "with shrinkage LDA under stratified cross-validation. Chance is "
+            r"$1/K$; majority is the largest class fraction. This is a sanity check, not a BCI."
         ),
         equations=(
-            r"\mathbf{v}_i=\mathrm{vech}(\log C_i)",
+            r"\mathbf{v}_i=\mathrm{vech}\bigl(\log C_i-\log\bar C_{\mathrm{train}}\bigr)",
             r"\mathrm{chance}=1/K,\quad "
             r"\mathrm{majority}=\max_k n_k/N",
         ),

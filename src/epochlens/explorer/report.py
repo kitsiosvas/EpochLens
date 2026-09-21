@@ -37,8 +37,8 @@ HONESTY = (
     "preprocessing pipeline."
 )
 DECODE_NOTE = (
-    "Cross-validated LDA on log-Euclidean covariances is a sanity check against "
-    "chance, not a brain–computer interface."
+    "Cross-validated LDA on pyRiemann log-Euclidean tangent space is a sanity "
+    "check against chance, not a brain–computer interface."
 )
 
 

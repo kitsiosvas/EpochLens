@@ -369,7 +369,7 @@ def render() -> None:
                 "Distance",
                 ["log-Euclidean", "affine-invariant Riemann"],
                 horizontal=True,
-                help="Affine-invariant is the SPD geodesic and slower. Both use the full montage.",
+                help="Both metrics are pyRiemann, full montage. Affine-invariant is the SPD geodesic.",
             )
             metric = "logeuclid" if metric_label.startswith("log") else "riemann"
             covs = trial_covariances(batch, window)
@@ -403,7 +403,9 @@ def render() -> None:
             st.caption(
                 "Covariance geometry uses the full montage (all channels). "
                 "Ranked-channel selection is not used. "
-                "Affine-invariant Riemann is the geodesic on SPD matrices; log-Euclidean is the faster default."
+                "Covariances, distances, and session whitening are pyRiemann "
+                "(Ledoit–Wolf; log-Euclidean or affine-invariant Riemann). "
+                "Points are classical MDS."
             )
             show_math(st, "mds")
 

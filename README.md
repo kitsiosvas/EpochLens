@@ -16,8 +16,8 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 - Band-power topography (θ / α / β / γ)
 - Pairwise discriminability maps (Mann–Whitney |z|; README shorthand Wilcoxon)
 - Channel ranking (table + JSON sidecar on HTML export)
-- Log-Euclidean / Riemannian trial embeddings, including session whitening
-- Optional cross-validated log-Euclid LDA vs chance (sanity check, not a BCI)
+- Log-Euclidean / Riemannian trial embeddings, including session whitening ([pyRiemann](https://pyriemann.readthedocs.io/))
+- Optional cross-validated log-Euclid tangent-space LDA vs chance (sanity check, not a BCI)
 
 Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
 
@@ -90,6 +90,8 @@ from epochlens.riemann import trial_covariances, session_whiten, embed_mds
 write_html(batch, "report.html", window=(0.5, 2.0), baseline=(0.0, 0.4))
 ```
 
+`trial_covariances`, distances, and session whitening call [pyRiemann](https://pyriemann.readthedocs.io/). MDS is classical.
+
 FIF (needs MNE):
 
 ```python
@@ -100,7 +102,7 @@ batch = load_epochs_fif("path/to/epochs-epo.fif")
 
 The FIF loader keeps EEG channels only. Session ids come from MNE metadata (`session`, `run`, …) when present.
 
-Time windows, sampling rate, and montage are arguments. Nothing BioSemi- or experiment-specific belongs in the math.
+Time windows, sampling rate, and montage are arguments. Nothing BioSemi- or experiment-specific belongs in the math. Covariance geometry is [pyRiemann](https://pyriemann.readthedocs.io/); EpochLens does not reimplement it.
 
 ## Layout
 

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from epochlens.adapters.synthetic import make_synthetic
 from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
@@ -40,3 +41,18 @@ def test_affine_invariant_distance_and_whiten():
     assert xy.shape == (batch.n_trials, 2)
     out = session_whiten(covs, batch.sessions, metric="riemann")
     assert out.shape == covs.shape
+
+
+def test_distances_match_pyriemann():
+    pytest.importorskip("pyriemann")
+    try:
+        from pyriemann.geometry.distance import pairwise_distance
+    except ImportError:
+        from pyriemann.utils.distance import pairwise_distance
+
+    batch = make_synthetic(n_channels=4, trials_per_class=3, duration=1.0, seed=9)
+    covs = trial_covariances(batch, (0.5, 0.9))
+    for metric in ("logeuclid", "riemann"):
+        ours = pairwise_distances(covs, metric=metric)
+        theirs = np.asarray(pairwise_distance(covs, metric=metric), dtype=np.float64)
+        assert np.allclose(ours, theirs, atol=1e-8), metric
