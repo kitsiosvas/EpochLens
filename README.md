@@ -21,7 +21,7 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 
 Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
 
-Streamlit views: **Overview** (default), Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Overview answers what is in the file (class counts, bad channels, MDS thumbnail, chance check). A focus channel (sidebar or plot click) follows through waveforms, spectra, scalograms, and scalp. Each view includes the LaTeX for the equations EpochLens actually computes.
+Streamlit views: **Overview** (default), Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Overview answers what is in the file (class counts, bad channels, MDS thumbnail, chance check). A focus channel (sidebar or plot click) follows through waveforms, spectra, and scalp. Each view includes the LaTeX for the equations EpochLens actually computes.
 
 ## What it is not
 

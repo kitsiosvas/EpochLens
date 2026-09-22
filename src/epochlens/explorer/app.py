@@ -555,29 +555,6 @@ def render() -> None:
             "Relative power versus the baseline window (diverging RdBu), across trials / ranked channels. "
             "Dashed lines mark the analysis window."
         )
-        focus_sub = batch.pick([focus])
-        f_power, f_freqs, f_times = mean_cwt_power(
-            focus_sub,
-            fmin=float(fmin),
-            fmax=float(fmax),
-            voices_per_octave=int(voices),
-            decim=int(decim),
-            use_cache=True,
-        )
-        f_rel = relative_scalogram(f_power, f_times, baseline)
-        _plotly_chart(
-            scalogram_grid(
-                f_rel,
-                f_times,
-                f_freqs,
-                focus_sub.ch_names,
-                title=f"Relative CWT scalogram ({batch.ch_names[focus]})",
-                window=window,
-                max_channels=1,
-            ),
-            key=f"cwt-focus-{key}-{focus}",
-        )
-        st.caption(f"Focused channel {batch.ch_names[focus]}: relative CWT vs baseline.")
         if batch.labels is not None:
             show_n = min(4, subset.n_channels)
             rel_by_class, cls_times, cls_freqs, cls_names = class_relative_scalograms(
