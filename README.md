@@ -21,7 +21,7 @@ A Streamlit explorer of epoched EEG that is meant to be looked at. Optional HTML
 
 Waveforms, spectra, and CWT use a ranked-channel subset. MDS and the chance check use the **full montage**.
 
-Streamlit views: Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Each view includes the LaTeX for the equations EpochLens actually computes.
+Streamlit views: **Overview** (default), Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, vs chance. Overview answers what is in the file (class counts, bad channels, MDS thumbnail, chance check). A focus channel (sidebar or plot click) follows through waveforms, spectra, scalograms, and scalp. Each view includes the LaTeX for the equations EpochLens actually computes.
 
 ## What it is not
 
@@ -66,14 +66,14 @@ Any already-epoched experiment (music listening, motor imagery, ERP, speech, …
 
 Class labels come from MNE `event_id` or the NPZ sidecar. Epoch in MNE first if you have continuous recordings. EpochLens does not cut raw data.
 
-Optional static HTML snapshot (also **Export** in the Streamlit sidebar):
+Optional static HTML snapshot or figure zip (also **Export** in the Streamlit sidebar — Build HTML snapshot or Build figure zip):
 
 ```text
 .\.venv\Scripts\python.exe -m epochlens.explorer --html --out report.html --open
 .\.venv\Scripts\python.exe -m epochlens.explorer --fif path/to/epochs-epo.fif --html --window 0.0,2.0 --out report.html
 ```
 
-`--full` on the HTML path adds per-class CWT, affine-invariant MDS, and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders. HTML math is rendered into the snapshot (no network).
+`--full` on the HTML path adds per-class CWT, affine-invariant MDS, and extra topomaps. `--window` / `--baseline-end` apply to HTML only; Streamlit has sliders. HTML math is rendered into the snapshot (no network). Example dummy-data snapshot: [docs/example/report.html](docs/example/report.html).
 
 Two short PhysioNet motor-imagery runs (subject 1, a few MB) can be epoched to FIF with `examples/epoch_eegbci.py`, then loaded like any other epochs file.
 

@@ -250,6 +250,9 @@ def channel_stem(
     ch_names: list[str],
     title: str,
     highlight: np.ndarray | None = None,
+    *,
+    bad: np.ndarray | None = None,
+    selected: int | None = None,
 ) -> go.Figure:
     scores = np.asarray(scores, dtype=np.float64)
     names = list(ch_names)
@@ -257,12 +260,52 @@ def channel_stem(
     pick = set()
     if highlight is not None:
         pick = {int(i) for i in np.asarray(highlight, dtype=int)}
-    colors = [PICK if i in pick else MUTED for i in range(n)]
+    bad_mask = np.zeros(n, dtype=bool)
+    if bad is not None:
+        bad_mask = np.asarray(bad, dtype=bool)
+        if bad_mask.shape != (n,):
+            raise ValueError(f"bad must have length {n}")
+    bad_fill = "#C4B8A5"
+    colors: list[str] = []
+    patterns: list[str] = []
+    line_widths: list[float] = []
+    line_colors: list[str] = []
+    sel = None if selected is None else int(selected)
+    for i in range(n):
+        is_bad = bool(bad_mask[i])
+        is_sel = sel is not None and i == sel
+        if is_bad:
+            fill = bad_fill
+            patterns.append("/")
+        elif i in pick:
+            fill = PICK
+            patterns.append("")
+        else:
+            fill = MUTED
+            patterns.append("")
+        if is_sel:
+            if is_bad:
+                fill = bad_fill
+            elif i in pick:
+                fill = PICK
+            else:
+                fill = MUTED
+            line_widths.append(2.5)
+            line_colors.append(INK)
+        else:
+            line_widths.append(0)
+            line_colors.append("rgba(0,0,0,0)")
+        colors.append(fill)
     fig = go.Figure(
         go.Bar(
             x=names,
             y=scores,
-            marker=dict(color=colors, line=dict(width=0)),
+            customdata=np.arange(n),
+            marker=dict(
+                color=colors,
+                line=dict(width=line_widths, color=line_colors),
+                pattern=dict(shape=patterns),
+            ),
             width=0.62,
             hovertemplate="%{x}<br>score = %{y:.3f}<extra></extra>",
             showlegend=False,
@@ -286,6 +329,105 @@ def channel_stem(
         showspikes=False,
     )
     fig.update_yaxes(title_text="Score", zeroline=True, zerolinecolor=RULE, zerolinewidth=1)
+    return fig
+
+
+def trial_strip(
+    times: np.ndarray,
+    trials: np.ndarray,
+    labels: np.ndarray | None,
+    class_names: dict,
+    *,
+    channel_name: str,
+    window: tuple[float, float] | None = None,
+    max_per_class: int = 2,
+) -> go.Figure:
+    """Overlay a few raw trials and class means for one channel.
+
+    ``trials`` is ``(n_trials, n_times)``, already baseline z-scored by the caller.
+    """
+    times = np.asarray(times, dtype=np.float64)
+    trials = np.asarray(trials, dtype=np.float64)
+    if trials.ndim != 2 or trials.shape[1] != times.shape[0]:
+        raise ValueError("trials must be (n_trials, n_times) matching times")
+    fig = make_subplots(rows=1, cols=1)
+    _add_window(fig, window, 1, 1)
+
+    if labels is None:
+        n_show = min(8, trials.shape[0])
+        for i in range(n_show):
+            fig.add_trace(
+                go.Scatter(
+                    x=times,
+                    y=trials[i],
+                    mode="lines",
+                    line=dict(color=_class_color(None, 0), width=1),
+                    opacity=0.35,
+                    showlegend=False,
+                    hoverinfo="skip",
+                ),
+                row=1,
+                col=1,
+            )
+        mean = trials.mean(axis=0)
+        fig.add_trace(
+            go.Scatter(
+                x=times,
+                y=mean,
+                mode="lines",
+                name="all",
+                line=dict(color=_class_color(None, 0), width=2.4),
+                hovertemplate="all<br>z = %{y:.3f}<extra></extra>",
+            ),
+            row=1,
+            col=1,
+        )
+    else:
+        labels = np.asarray(labels)
+        keys = [int(k) for k in np.unique(labels)]
+        for k, key in enumerate(keys):
+            color = _class_color(key, k)
+            label = _class_label(key, class_names)
+            cls_idx = np.flatnonzero(labels == key)
+            for ti in cls_idx[:max_per_class]:
+                fig.add_trace(
+                    go.Scatter(
+                        x=times,
+                        y=trials[ti],
+                        mode="lines",
+                        line=dict(color=color, width=1),
+                        opacity=0.35,
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ),
+                    row=1,
+                    col=1,
+                )
+            mean = trials[cls_idx].mean(axis=0)
+            fig.add_trace(
+                go.Scatter(
+                    x=times,
+                    y=mean,
+                    mode="lines",
+                    name=label,
+                    legendgroup=str(key),
+                    line=dict(color=color, width=2.4),
+                    hovertemplate=f"{label}<br>z = %{{y:.3f}}<extra></extra>",
+                ),
+                row=1,
+                col=1,
+            )
+
+    apply_plotly_style(
+        fig,
+        hovermode="closest",
+        title=str(channel_name),
+        height=380,
+        margin=dict(l=56, r=28, t=56, b=56),
+        legend=_legend_below(1),
+    )
+    fig.update_xaxes(title_text="Time (s)")
+    fig.update_yaxes(title_text="z", zeroline=True, zerolinecolor=RULE, zerolinewidth=1)
     return fig
 
 
@@ -375,6 +517,9 @@ def scalp_scatter(
     highlight: np.ndarray,
     title: str,
     ch_names: list[str] | None = None,
+    *,
+    bad: np.ndarray | None = None,
+    selected: int | None = None,
 ) -> go.Figure:
     from epochlens.topo import located_mask
 
@@ -384,9 +529,17 @@ def scalp_scatter(
     mask[np.asarray(highlight, dtype=int)] = True
     names = _channel_hover_names(xy.shape[0], ch_names)
     idx = np.arange(xy.shape[0])
+    n = xy.shape[0]
+    bad_mask = np.zeros(n, dtype=bool)
+    if bad is not None:
+        bad_mask = np.asarray(bad, dtype=bool)
+        if bad_mask.shape != (n,):
+            raise ValueError(f"bad must have length {n}")
     fig = go.Figure()
-    other = ok & ~mask
-    selected = ok & mask
+    # Bad located sensors: open MUTED circles, excluded from highlight set.
+    bad_loc = ok & bad_mask
+    other = ok & ~mask & ~bad_mask
+    hi = ok & mask & ~bad_mask
     fig.add_trace(
         go.Scatter(
             x=xy[other, 0],
@@ -394,21 +547,62 @@ def scalp_scatter(
             mode="markers",
             name="other",
             marker=dict(size=9, color=CLASS_PALETTE[0], line=dict(width=0.6, color=INK)),
+            customdata=idx[other],
             hovertext=[names[i] for i in idx[other]],
             hovertemplate="%{hovertext}<extra>other</extra>",
         )
     )
+    if np.any(bad_loc):
+        fig.add_trace(
+            go.Scatter(
+                x=xy[bad_loc, 0],
+                y=xy[bad_loc, 1],
+                mode="markers",
+                name="bad",
+                marker=dict(
+                    size=9,
+                    symbol="circle-open",
+                    color=MUTED,
+                    line=dict(width=1.2, color=MUTED),
+                ),
+                customdata=idx[bad_loc],
+                hovertext=[names[i] for i in idx[bad_loc]],
+                hovertemplate="%{hovertext}<extra>bad</extra>",
+            )
+        )
     fig.add_trace(
         go.Scatter(
-            x=xy[selected, 0],
-            y=xy[selected, 1],
+            x=xy[hi, 0],
+            y=xy[hi, 1],
             mode="markers",
             name="selected",
             marker=dict(size=13, color=PICK, line=dict(width=0.8, color=INK)),
-            hovertext=[names[i] for i in idx[selected]],
+            customdata=idx[hi],
+            hovertext=[names[i] for i in idx[hi]],
             hovertemplate="%{hovertext}<extra>selected</extra>",
         )
     )
+    if selected is not None:
+        sel = int(selected)
+        if 0 <= sel < n and ok[sel]:
+            fig.add_trace(
+                go.Scatter(
+                    x=[xy[sel, 0]],
+                    y=[xy[sel, 1]],
+                    mode="markers",
+                    name="focus",
+                    marker=dict(
+                        size=18,
+                        symbol="circle-open",
+                        color=INK,
+                        line=dict(width=2, color=INK),
+                    ),
+                    customdata=[sel],
+                    hovertext=[names[sel]],
+                    hovertemplate="%{hovertext}<extra>focus</extra>",
+                    showlegend=False,
+                )
+            )
     shapes = head_plotly_shapes(xy)
     ranges = head_axis_ranges(xy)
     apply_plotly_style(
@@ -827,6 +1021,8 @@ def band_topomaps(
     band_means: np.ndarray,
     band_names: list[str],
     ch_names: list[str] | None = None,
+    *,
+    selected: int | None = None,
 ) -> go.Figure:
     from epochlens.topo import interpolate_topo, located_mask
 
@@ -850,6 +1046,7 @@ def band_topomaps(
     idx = np.arange(xy.shape[0])
     shapes: list[dict] = []
     ranges = head_axis_ranges(xy)
+    sel = None if selected is None else int(selected)
     for i, name in enumerate(band_names):
         r, c = divmod(i, cols)
         Xi, Yi, Zi = interpolate_topo(xy, band_means[:, i])
@@ -872,6 +1069,8 @@ def band_topomaps(
             row=r + 1,
             col=c + 1,
         )
+        ok_idx = idx[ok]
+        sensor_custom = np.column_stack([ok_idx, band_means[ok, i]])
         fig.add_trace(
             go.Scatter(
                 x=xy[ok, 0],
@@ -880,15 +1079,39 @@ def band_topomaps(
                 name="sensors",
                 marker=dict(size=8, color=PANEL, line=dict(width=0.7, color=INK)),
                 showlegend=False,
-                hovertext=[names[j] for j in idx[ok]],
-                customdata=band_means[ok, i],
-                hovertemplate="%{hovertext}<br>power = %{customdata:.3g}<extra>"
+                hovertext=[names[j] for j in ok_idx],
+                customdata=sensor_custom,
+                hovertemplate="%{hovertext}<br>power = %{customdata[1]:.3g}<extra>"
                 + name
                 + "</extra>",
             ),
             row=r + 1,
             col=c + 1,
         )
+        if sel is not None and 0 <= sel < xy.shape[0] and ok[sel]:
+            power_sel = float(band_means[sel, i])
+            fig.add_trace(
+                go.Scatter(
+                    x=[xy[sel, 0]],
+                    y=[xy[sel, 1]],
+                    mode="markers",
+                    name="focus",
+                    marker=dict(
+                        size=18,
+                        symbol="circle-open",
+                        color=INK,
+                        line=dict(width=2, color=INK),
+                    ),
+                    showlegend=False,
+                    hovertext=[names[sel]],
+                    customdata=[[sel, power_sel]],
+                    hovertemplate="%{hovertext}<br>power = %{customdata[1]:.3g}<extra>"
+                    + name
+                    + "</extra>",
+                ),
+                row=r + 1,
+                col=c + 1,
+            )
         _hide_xy(fig, r + 1, c + 1, xref)
         if ranges is not None:
             fig.update_xaxes(range=list(ranges[0]), row=r + 1, col=c + 1)

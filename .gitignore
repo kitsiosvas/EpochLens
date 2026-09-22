@@ -13,7 +13,8 @@ venv/
 .epochlens_cache/
 *.npz
 *.zarr
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml
 .coverage
 data/
 epochlens_report.html

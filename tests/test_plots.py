@@ -198,3 +198,88 @@ def test_scalp_plots_skip_nan_coordinates():
     for trace in scatters:
         assert np.all(np.isfinite(trace.x))
         assert np.all(np.isfinite(trace.y))
+
+
+def test_trial_strip_has_mean_and_trial_traces():
+    from epochlens.explorer.plots import trial_strip
+
+    batch = make_synthetic(n_channels=6, trials_per_class=6, seed=5)
+    window, baseline = (0.6, 1.4), (0.0, 0.4)
+    zbatch, _scores, picks, *_ = prepare_ranking(batch, window, baseline, 3)
+    ch = int(picks[0])
+    trials = zbatch.data[:, ch, :]
+    fig = trial_strip(
+        zbatch.times,
+        trials,
+        batch.labels,
+        batch.class_names,
+        channel_name=batch.ch_names[ch],
+        window=window,
+        max_per_class=2,
+    )
+    assert isinstance(fig, go.Figure)
+    bold = [t for t in fig.data if t.mode == "lines" and t.line is not None and (t.line.width or 0) >= 2]
+    thin = [t for t in fig.data if t.mode == "lines" and t.line is not None and (t.line.width or 0) < 2]
+    assert len(bold) >= 1
+    assert len(thin) >= 1
+    assert batch.ch_names[ch] in str(fig.layout.title.text)
+
+
+def test_channel_stem_customdata_bad_and_selected():
+    from epochlens.explorer.plots import channel_stem
+    from epochlens.explorer.style import PICK
+
+    batch = make_synthetic(n_channels=8, trials_per_class=4, seed=4)
+    scores = np.linspace(0.1, 0.9, len(batch.ch_names))
+    bad = np.zeros(len(scores), dtype=bool)
+    bad[2] = True
+    highlight = np.array([1, 2, 3])
+    fig = channel_stem(
+        scores,
+        batch.ch_names,
+        "rank",
+        highlight=highlight,
+        bad=bad,
+        selected=5,
+    )
+    bar = fig.data[0]
+    assert np.array_equal(np.asarray(bar.customdata), np.arange(len(scores)))
+    colors = list(bar.marker.color)
+    assert colors[2] != PICK
+    assert colors[2].upper() == "#C4B8A5"
+    widths = list(bar.marker.line.width)
+    assert widths[5] == 2.5
+
+
+def test_scalp_scatter_customdata_and_selected():
+    from epochlens.explorer.plots import scalp_scatter
+
+    batch = make_synthetic(n_channels=8, trials_per_class=4, seed=2)
+    fig = scalp_scatter(batch.montage_xy, np.array([0, 1]), "scalp", selected=0)
+    assert isinstance(fig, go.Figure)
+    indices = []
+    for trace in fig.data:
+        if trace.customdata is None:
+            continue
+        cd = np.asarray(trace.customdata).ravel()
+        indices.extend(int(v) for v in cd)
+    assert indices
+    assert all(0 <= i < batch.montage_xy.shape[0] for i in indices)
+
+
+def test_band_topomaps_selected_two_column_customdata():
+    batch = make_synthetic(n_channels=8, trials_per_class=4, seed=2)
+    power, names = band_power(batch, (0.6, 1.4))
+    fig = band_topomaps(batch.montage_xy, power.mean(axis=0), names, selected=0)
+    assert isinstance(fig, go.Figure)
+    sensors = [t for t in fig.data if t.type == "scatter" and t.name == "sensors"]
+    assert sensors
+    for trace in sensors:
+        cd = np.asarray(trace.customdata)
+        assert cd.ndim == 2 and cd.shape[1] == 2
+
+
+def test_plotly_config_modebar_hover():
+    from epochlens.explorer.style import PLOTLY_CONFIG
+
+    assert PLOTLY_CONFIG["displayModeBar"] == "hover"

@@ -20,6 +20,11 @@ PICK = "#8F2D21"
 WINDOW_FILL = "#D8D0C2"
 DPI = 128
 
+PLOTLY_CONFIG = {
+    "displayModeBar": "hover",
+    "displaylogo": False,
+}
+
 # Diverging relative-power (blue = below baseline, red = above). Midpoint is 0.
 REL_POWER_SCALE: list[list] = [
     [0.0, "rgb(5,48,97)"],
@@ -284,7 +289,12 @@ def epochlens_template():
 
 def apply_plotly_style(fig, *, hovermode: str = "closest", **layout):
     """Apply the EpochLens template, then any figure-specific layout kwargs."""
-    fig.update_layout(template=epochlens_template(), hovermode=hovermode, **layout)
+    fig.update_layout(
+        template=epochlens_template(),
+        hovermode=hovermode,
+        modebar=dict(bgcolor="rgba(0,0,0,0)", color=MUTED, activecolor=INK),
+        **layout,
+    )
     return fig
 
 

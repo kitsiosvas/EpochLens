@@ -30,6 +30,9 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     assert "class-mean spectra" in low
     assert "chance" in low
     assert "band-power topography" in low
+    assert "class-mean band power" in low
+    assert "kruskal stress-1" in low
+    assert "mdm" in low
     assert "session-whitened" in low
     assert "session votes" in low
     assert "sessions are not subjects" in low
@@ -65,6 +68,7 @@ def test_html_report_contains_honesty_and_figures(tmp_path: Path):
     text = sidecar.read_text(encoding="utf-8")
     assert "ranking" in text
     assert "chance" in text
+    assert "mdm_accuracy" in text
     assert "10 Hz" in text
     assert "excluded bad" not in low
 
@@ -93,3 +97,24 @@ def test_full_report_adds_per_class_cwt_and_extra_topomap(tmp_path: Path):
     assert "not a classifier" in low
     assert "not a bci" in low
     assert tmp_path.joinpath("full.json").exists()
+
+
+def test_report_pngs_returns_png_bytes():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    from epochlens.explorer.report import report_pngs
+
+    batch = make_synthetic(n_channels=8, trials_per_class=6, seed=7)
+    items = report_pngs(
+        batch,
+        window=(0.6, 1.4),
+        baseline=(0.0, 0.4),
+        voices_per_octave=6,
+        decim=4,
+        top_k=4,
+        full=False,
+    )
+    assert len(items) >= 5
+    for name, data in items:
+        assert name.endswith(".png")
+        assert data.startswith(b"\x89PNG")

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -26,9 +28,10 @@ from epochlens.explorer.plots import (
     pairwise_heatmaps,
     scalogram_grid,
     scalp_scatter,
+    trial_strip,
 )
-from epochlens.explorer.report import DECODE_NOTE, HONESTY, render_report
-from epochlens.explorer.style import CLASS_PALETTE, MUTED, apply_plotly_style
+from epochlens.explorer.report import DECODE_NOTE, HONESTY, render_report, report_pngs
+from epochlens.explorer.style import CLASS_PALETTE, MUTED, PLOTLY_CONFIG, apply_plotly_style
 from epochlens.ranking import prepare_ranking, ranking_table, session_channel_votes, top_channels
 from epochlens.riemann import embed_mds, mds_stress, pairwise_distances, session_whiten, trial_covariances
 from epochlens.explorer.summary import dataset_facts
@@ -38,6 +41,7 @@ from epochlens.windows import default_windows
 
 _COV_ESTIMATORS = ("lwf", "oas", "scm")
 _COV_EST_LABEL = {"lwf": "Ledoit–Wolf", "oas": "OAS", "scm": "sample covariance"}
+_PLOTLY_ON_SELECT = "rerun"
 
 
 st.set_page_config(page_title="EpochLens", layout="wide")
@@ -188,6 +192,61 @@ def _save_upload(upload, suffix: str) -> str:
     return str(dest)
 
 
+def _channel_from_selection(event) -> int | None:
+    """Read a channel index from a Streamlit Plotly selection ``customdata``."""
+    if event is None:
+        return None
+    selection = getattr(event, "selection", None)
+    if selection is None and isinstance(event, dict):
+        selection = event.get("selection")
+    if selection is None:
+        return None
+    points = getattr(selection, "points", None)
+    if points is None and isinstance(selection, dict):
+        points = selection.get("points")
+    if not points:
+        return None
+    pt = points[0]
+    if isinstance(pt, dict):
+        cd = pt.get("customdata")
+    else:
+        cd = getattr(pt, "customdata", None)
+    if cd is None:
+        return None
+    if isinstance(cd, (list, tuple, np.ndarray)):
+        cd = cd[0]
+    try:
+        return int(cd)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_focus_from_chart(event, current_focus: int) -> None:
+    ch = _channel_from_selection(event)
+    if ch is None:
+        return
+    if int(ch) != int(current_focus):
+        st.session_state["focus_override"] = int(ch)
+        st.rerun()
+
+
+def _plotly_chart(fig, *, key: str | None = None, on_select: str | None = None):
+    kwargs: dict = {"width": "stretch", "config": PLOTLY_CONFIG}
+    if key is not None:
+        kwargs["key"] = key
+    if on_select is not None:
+        kwargs["on_select"] = on_select
+    try:
+        return st.plotly_chart(fig, **kwargs)
+    except TypeError:
+        kwargs.pop("on_select", None)
+        kwargs.pop("config", None)
+        try:
+            return st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=key)
+        except TypeError:
+            return st.plotly_chart(fig, width="stretch", key=key)
+
+
 def render() -> None:
     st.title("EpochLens")
     st.caption("Look at labeled EEG epochs. Classes come from the recording. HTML export is a snapshot, not the app.")
@@ -299,28 +358,170 @@ def render() -> None:
     subset = batch.pick(picks)
     zsub = zbatch.pick(picks)
 
+    focus_state = f"focus-ch-{key}"
+    widget_key = f"focus-box-{key}"
+    if "focus_override" in st.session_state:
+        override = int(st.session_state.pop("focus_override"))
+        st.session_state[widget_key] = override
+        st.session_state[focus_state] = override
+    elif widget_key in st.session_state:
+        st.session_state[focus_state] = int(st.session_state[widget_key])
+    elif focus_state not in st.session_state:
+        st.session_state[focus_state] = int(picks[0]) if picks.size else 0
+    focus = int(st.session_state[focus_state])
+    focus = max(0, min(focus, batch.n_channels - 1))
+    st.session_state[widget_key] = focus
+
+    with st.sidebar:
+        st.header("Focus")
+        focus = st.selectbox(
+            "Channel",
+            options=list(range(batch.n_channels)),
+            format_func=lambda i: batch.ch_names[int(i)],
+            key=widget_key,
+        )
+        focus = int(focus)
+        st.session_state[focus_state] = focus
+        if bool(bad[focus]):
+            st.caption(f"{batch.ch_names[focus]} is flagged as a bad channel.")
+
     view = st.radio(
         "View",
-        ["Waveforms", "Time–frequency", "Scalp", "Discriminability", "Ranking", "MDS", "vs chance"],
+        [
+            "Overview",
+            "Waveforms",
+            "Time–frequency",
+            "Scalp",
+            "Discriminability",
+            "Ranking",
+            "MDS",
+            "vs chance",
+        ],
         horizontal=True,
     )
 
-    if view == "Waveforms":
+    if view == "Overview":
+        bits: list[str] = []
+        if facts["class_detail"]:
+            bits.append(facts["class_detail"])
+        else:
+            bits.append("No class labels on this batch")
+        if int(np.sum(bad)):
+            names = ", ".join(batch.ch_names[i] for i in np.flatnonzero(bad))
+            bits.append(f"Bad channels: {names}")
+        else:
+            bits.append("No bad channels")
+        if ave is not None and disc_times is not None:
+            ave_peak = np.array(ave, copy=True)
+            ave_peak[bad] = np.nan
+            peak_t, peak_ch, _ = peak_map(ave_peak, disc_times)
+            bits.append(f"Peak mean |z| at {peak_t:.3f} s on {batch.ch_names[peak_ch]}")
+        st.write(". ".join(bits) + ".")
+        st.write(
+            "Visualization subset: "
+            + (", ".join(batch.ch_names[i] for i in picks) if picks.size else "(none)")
+            + "."
+        )
+
+        if batch.labels is None:
+            st.write("No class labels, so MDS and the chance check are skipped.")
+        else:
+            ov_key = (
+                f"overview-{batch.dataset}-{batch.n_trials}-{batch.n_times}"
+                f"-{window[0]:.4f}-{window[1]:.4f}"
+            )
+            cached = st.session_state.get(ov_key)
+            if cached is None:
+                with st.spinner("Computing overview MDS and chance check…"):
+                    covs = trial_covariances(batch, window)
+                    dist = pairwise_distances(covs, metric="logeuclid")
+                    xy = embed_mds(dist)
+                    stress = float(mds_stress(dist, xy))
+                    lda = None
+                    mdm = None
+                    cv_error = None
+                    try:
+                        lda = logeuclid_lda_cv(batch, window, covs=covs)
+                        mdm = logeuclid_mdm_cv(batch, window, covs=covs)
+                    except ValueError as exc:
+                        cv_error = str(exc)
+                    cached = {
+                        "xy": xy,
+                        "stress": stress,
+                        "lda": lda,
+                        "mdm": mdm,
+                        "cv_error": cv_error,
+                    }
+                    st.session_state[ov_key] = cached
+            _plotly_chart(
+                mds_scatter(
+                    cached["xy"],
+                    batch.labels,
+                    batch.sessions,
+                    batch.class_names,
+                    "Log-Euclidean MDS (full montage)",
+                ),
+                key=f"overview-mds-{ov_key}",
+            )
+            st.caption(f"Kruskal stress-1: {cached['stress']:.3f} (0 is exact).")
+            if cached.get("cv_error"):
+                st.error(cached["cv_error"])
+            elif cached["lda"] is not None and cached["mdm"] is not None:
+                lda: ChanceReport = cached["lda"]
+                mdm: ChanceReport = cached["mdm"]
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("LDA CV accuracy", f"{100 * lda.accuracy:.1f}%")
+                c2.metric("MDM CV accuracy", f"{100 * mdm.accuracy:.1f}%")
+                c3.metric("Chance", f"{100 * lda.chance:.0f}%")
+                c4.metric("Majority", f"{100 * lda.majority:.0f}%")
+                _plotly_chart(_cv_fold_figure(lda, mdm), key=f"overview-cv-{ov_key}")
+                st.caption(
+                    f"LDA {100 * lda.accuracy:.1f}% · MDM {100 * mdm.accuracy:.1f}% · "
+                    f"chance {100 * lda.chance:.0f}%. "
+                    "Sanity check on the full montage, not a BCI."
+                )
+
+    elif view == "Waveforms":
         means, sems = class_mean_sem(zsub)
-        st.plotly_chart(
+        _plotly_chart(
             mean_traces(zsub.times, means, sems, batch.class_names, zsub.ch_names, window),
-            width="stretch",
+            key=f"wave-means-{key}",
         )
         st.caption("Ranked channels. Baseline z-scored class means ± SEM; shaded region is the analysis window.")
         show_math(st, "waveforms")
+        _plotly_chart(
+            trial_strip(
+                zbatch.times,
+                zbatch.data[:, focus, :],
+                batch.labels,
+                batch.class_names,
+                channel_name=batch.ch_names[focus],
+                window=window,
+            ),
+            key=f"wave-strip-{key}-{focus}",
+        )
+        st.caption(
+            f"Focused channel {batch.ch_names[focus]}: bold lines are class means; "
+            "thin lines are individual trials (at most two per class)."
+        )
         spec_freqs, spec_means = _class_spectra(subset, window)
-        st.plotly_chart(
+        _plotly_chart(
             class_mean_spectra(spec_freqs, spec_means, batch.class_names, subset.ch_names),
-            width="stretch",
+            key=f"wave-spec-{key}",
         )
         st.caption(
             "Class-mean spectra in the analysis window (ranked channels). "
             "Log power; shared y-range includes the actual maximum. "
+            f"Canonical bands: {band_range_caption()}."
+        )
+        focus_sub = batch.pick([focus])
+        f_freqs, f_means = _class_spectra(focus_sub, window)
+        _plotly_chart(
+            class_mean_spectra(f_freqs, f_means, batch.class_names, focus_sub.ch_names),
+            key=f"wave-spec-focus-{key}-{focus}",
+        )
+        st.caption(
+            f"Class-mean spectrum for focused channel {batch.ch_names[focus]}. "
             f"Canonical bands: {band_range_caption()}."
         )
         st.dataframe(_class_band_rows(subset, window, batch.class_names), hide_index=True, width="stretch")
@@ -338,7 +539,7 @@ def render() -> None:
             decim=int(decim),
         )
         rel = relative_scalogram(mean_power, times, baseline)
-        st.plotly_chart(
+        _plotly_chart(
             scalogram_grid(
                 rel,
                 times,
@@ -348,12 +549,35 @@ def render() -> None:
                 window=window,
                 max_channels=k,
             ),
-            width="stretch",
+            key=f"cwt-ranked-{key}",
         )
         st.caption(
             "Relative power versus the baseline window (diverging RdBu), across trials / ranked channels. "
             "Dashed lines mark the analysis window."
         )
+        focus_sub = batch.pick([focus])
+        f_power, f_freqs, f_times = mean_cwt_power(
+            focus_sub,
+            fmin=float(fmin),
+            fmax=float(fmax),
+            voices_per_octave=int(voices),
+            decim=int(decim),
+            use_cache=True,
+        )
+        f_rel = relative_scalogram(f_power, f_times, baseline)
+        _plotly_chart(
+            scalogram_grid(
+                f_rel,
+                f_times,
+                f_freqs,
+                focus_sub.ch_names,
+                title=f"Relative CWT scalogram ({batch.ch_names[focus]})",
+                window=window,
+                max_channels=1,
+            ),
+            key=f"cwt-focus-{key}-{focus}",
+        )
+        st.caption(f"Focused channel {batch.ch_names[focus]}: relative CWT vs baseline.")
         if batch.labels is not None:
             show_n = min(4, subset.n_channels)
             rel_by_class, cls_times, cls_freqs, cls_names = class_relative_scalograms(
@@ -366,7 +590,7 @@ def render() -> None:
                 decim=int(decim),
                 use_cache=True,
             )
-            st.plotly_chart(
+            _plotly_chart(
                 class_scalogram_grid(
                     rel_by_class,
                     cls_times,
@@ -375,7 +599,7 @@ def render() -> None:
                     batch.class_names,
                     window,
                 ),
-                width="stretch",
+                key=f"cwt-class-{key}",
             )
             st.caption(
                 "Per-class relative power versus the baseline window. "
@@ -387,37 +611,55 @@ def render() -> None:
         if can_draw_scalp(batch.montage_xy):
             power, names = band_power(batch, window)
             grand = power.mean(axis=0)
-            st.plotly_chart(
-                band_topomaps(batch.montage_xy, grand, names, ch_names=batch.ch_names),
-                width="stretch",
+            event = _plotly_chart(
+                band_topomaps(
+                    batch.montage_xy,
+                    grand,
+                    names,
+                    ch_names=batch.ch_names,
+                    selected=focus,
+                ),
+                key=f"scalp-grand-{key}",
+                on_select=_PLOTLY_ON_SELECT,
             )
+            _apply_focus_from_chart(event, focus)
             st.caption(
                 "Grand-mean band power on the scalp. Each map is scaled independently so spatial "
-                "structure stays visible; sensors overlaid."
+                f"structure stays visible; sensors overlaid. Focus: {batch.ch_names[focus]}."
             )
             if batch.labels is not None:
                 class_means, classes = class_mean_band_power(power, batch.labels)
                 tabs = st.tabs([str(batch.class_names.get(int(c), c)) for c in classes])
-                for tab, mean in zip(tabs, class_means):
+                for ti, (tab, mean) in enumerate(zip(tabs, class_means)):
                     with tab:
-                        st.plotly_chart(
-                            band_topomaps(batch.montage_xy, mean, names, ch_names=batch.ch_names),
-                            width="stretch",
+                        event = _plotly_chart(
+                            band_topomaps(
+                                batch.montage_xy,
+                                mean,
+                                names,
+                                ch_names=batch.ch_names,
+                                selected=focus,
+                            ),
+                            key=f"scalp-class-{key}-{ti}",
+                            on_select=_PLOTLY_ON_SELECT,
                         )
+                        _apply_focus_from_chart(event, focus)
                         st.caption(
                             "Class-mean band power on the scalp. Each map is scaled independently "
-                            "so spatial structure stays visible; sensors overlaid."
+                            f"so spatial structure stays visible; sensors overlaid. Focus: {batch.ch_names[focus]}."
                         )
             show_math(st, "scalp")
         else:
-            st.plotly_chart(
+            _plotly_chart(
                 channel_stem(
                     np.nan_to_num(scores, neginf=0.0),
                     batch.ch_names,
                     "Channel score used for ranking",
                     highlight=picks,
+                    bad=bad,
+                    selected=focus,
                 ),
-                width="stretch",
+                key=f"scalp-stem-{key}",
             )
             if batch.montage_xy is None:
                 st.caption("No montage coordinates on this batch, so band-power topography is unavailable.")
@@ -435,7 +677,7 @@ def render() -> None:
                 f"{batch.class_names.get(int(a), a)} vs {batch.class_names.get(int(b), b)}"
                 for a, b in pairs
             ]
-            st.plotly_chart(
+            _plotly_chart(
                 pairwise_heatmaps(
                     pair_maps[:, show, :],
                     disc_times,
@@ -443,7 +685,7 @@ def render() -> None:
                     pair_labels,
                     "Pairwise discriminability (Mann–Whitney |z|)",
                 ),
-                width="stretch",
+                key=f"disc-maps-{key}",
             )
             st.caption(
                 "One panel per class pair: Mann–Whitney U → |z| (README shorthand Wilcoxon). "
@@ -454,54 +696,91 @@ def render() -> None:
             peak_t, peak_ch, peak_ti = peak_map(ave_peak, disc_times)
             shown = show if show.size else np.arange(ave.shape[0])
             curve = np.asarray(ave)[shown].mean(axis=0)
-            st.plotly_chart(
+            _plotly_chart(
                 _disc_curve_figure(disc_times, curve, peak_t, float(curve[peak_ti])),
-                width="stretch",
+                key=f"disc-curve-{key}",
             )
             st.caption(
                 f"Peak mean |z| at {peak_t:.3f} s on {batch.ch_names[peak_ch]}. "
+                f"Focused channel: {batch.ch_names[focus]}. "
                 "The curve averages |z| across the channels shown in the heatmaps; "
                 "the marker is the time of the map maximum (all channels except excluded)."
             )
             show_math(st, "disc")
 
     elif view == "Ranking":
-        st.plotly_chart(
+        event = _plotly_chart(
             channel_stem(
                 np.nan_to_num(scores, neginf=0.0),
                 batch.ch_names,
                 "Channel score used for ranking",
                 highlight=picks,
+                bad=bad,
+                selected=focus,
             ),
-            width="stretch",
+            key=f"rank-stem-{key}",
+            on_select=_PLOTLY_ON_SELECT,
         )
+        _apply_focus_from_chart(event, focus)
         if can_draw_scalp(batch.montage_xy):
-            st.plotly_chart(
+            event = _plotly_chart(
                 scalp_scatter(
                     batch.montage_xy,
                     picks,
                     f"Top {len(picks)} channels",
                     ch_names=batch.ch_names,
+                    bad=bad,
+                    selected=focus,
                 ),
-                width="stretch",
+                key=f"rank-scalp-{key}",
+                on_select=_PLOTLY_ON_SELECT,
             )
-        st.caption("Highlighted sensors are the visualization subset (waveforms / CWT / spectra).")
+            _apply_focus_from_chart(event, focus)
+        rank_cap = (
+            f"Highlighted sensors are the visualization subset (waveforms / CWT / spectra). "
+            f"Focus: {batch.ch_names[focus]}."
+        )
+        if int(np.sum(bad)):
+            bad_names = ", ".join(batch.ch_names[i] for i in np.flatnonzero(bad))
+            rank_cap += f" Bad channels: {bad_names}."
+        st.caption(rank_cap)
         st.write("Top channels:", ", ".join(batch.ch_names[i] for i in picks))
         votes = session_channel_votes(batch, window, baseline, k)
-        st.dataframe(
-            ranking_table(scores, batch.ch_names, picks, votes),
-            hide_index=True,
-            width="stretch",
-        )
+        order = np.argsort(np.nan_to_num(scores, nan=-np.inf, neginf=-np.inf))[::-1]
+        table = ranking_table(scores, batch.ch_names, picks, votes)
+        try:
+            df_state = st.dataframe(
+                table,
+                hide_index=True,
+                width="stretch",
+                on_select="rerun",
+                selection_mode="single-row",
+                key=f"rank-table-{key}",
+            )
+            selection = getattr(df_state, "selection", None)
+            rows = getattr(selection, "rows", None) if selection is not None else None
+            if rows is None and isinstance(selection, dict):
+                rows = selection.get("rows")
+            if rows:
+                row_i = int(rows[0])
+                if 0 <= row_i < order.size:
+                    ch = int(order[row_i])
+                    if ch != focus:
+                        st.session_state["focus_override"] = ch
+                        st.rerun()
+        except TypeError:
+            st.dataframe(table, hide_index=True, width="stretch")
         if votes is not None:
-            st.plotly_chart(
+            _plotly_chart(
                 channel_stem(
                     votes.astype(float),
                     batch.ch_names,
                     "Session votes for the visualization subset",
                     highlight=picks,
+                    bad=bad,
+                    selected=focus,
                 ),
-                width="stretch",
+                key=f"rank-votes-{key}",
             )
             st.caption(
                 "How often each channel is in the top-k when ranking is computed per session. "
@@ -531,7 +810,7 @@ def render() -> None:
             with st.spinner("Embedding trial covariances…"):
                 dist0 = pairwise_distances(covs, metric=metric)
                 xy0 = embed_mds(dist0)
-            st.plotly_chart(
+            _plotly_chart(
                 mds_scatter(
                     xy0,
                     batch.labels,
@@ -539,7 +818,7 @@ def render() -> None:
                     batch.class_names,
                     f"{metric_label} MDS (all channels)",
                 ),
-                width="stretch",
+                key=f"mds-main-{key}",
             )
             st.caption(f"Kruskal stress-1: {mds_stress(dist0, xy0):.3f} (0 is exact).")
             n_ses = 0 if batch.sessions is None else int(np.unique(batch.sessions).size)
@@ -548,7 +827,7 @@ def render() -> None:
                     whitened = session_whiten(covs, batch.sessions, metric=metric)
                     dist1 = pairwise_distances(whitened, metric=metric)
                     xy1 = embed_mds(dist1)
-                st.plotly_chart(
+                _plotly_chart(
                     mds_scatter(
                         xy1,
                         batch.labels,
@@ -556,7 +835,7 @@ def render() -> None:
                         batch.class_names,
                         "After per-session whitening (all channels)",
                     ),
-                    width="stretch",
+                    key=f"mds-white-{key}",
                 )
                 st.caption(f"Kruskal stress-1 after whitening: {mds_stress(dist1, xy1):.3f}.")
             est_name = _COV_EST_LABEL.get(estimator, estimator)
@@ -590,7 +869,7 @@ def render() -> None:
                 c2.metric("MDM CV accuracy", f"{100 * mdm.accuracy:.1f}%")
                 c3.metric("Chance", f"{100 * report.chance:.0f}%")
                 c4.metric("Majority", f"{100 * report.majority:.0f}%")
-                st.plotly_chart(_cv_fold_figure(report, mdm), width="stretch")
+                _plotly_chart(_cv_fold_figure(report, mdm), key=f"chance-folds-{key}")
                 st.write(
                     f"{report.method} · {report.n_splits}-fold · {report.n_features} features · "
                     f"{report.n_trials} trials · full montage (all channels)"
@@ -625,6 +904,32 @@ def render() -> None:
                 data=snapshot,
                 file_name="epochlens_report.html",
                 mime="text/html",
+            )
+        if st.button("Build figure zip"):
+            with st.spinner("Rendering figure zip…"):
+                items = report_pngs(
+                    batch,
+                    window=window,
+                    baseline=baseline,
+                    fmin=float(fmin),
+                    fmax=float(fmax),
+                    voices_per_octave=int(voices),
+                    decim=int(decim),
+                    top_k=k,
+                    full=full,
+                )
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for name, data in items:
+                        zf.writestr(name, data)
+                st.session_state["zip_export"] = buf.getvalue()
+        zip_bytes = st.session_state.get("zip_export")
+        if zip_bytes:
+            st.download_button(
+                "Download figure zip",
+                data=zip_bytes,
+                file_name="epochlens_figures.zip",
+                mime="application/zip",
             )
 
     st.caption("EpochLens — first-look figures for labeled EEG (MIT).")

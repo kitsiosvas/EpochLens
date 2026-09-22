@@ -5,14 +5,16 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 import json
+import re
 from pathlib import Path
 
 import numpy as np
 
 from epochlens.types import EpochBatch
-from epochlens.bands import band_power, window_spectrum
+from epochlens.bands import band_power, class_mean_band_power, window_spectrum
 from epochlens.cwt import class_relative_scalograms, energy_channel_score, mean_cwt_power, relative_scalogram
-from epochlens.decoding import logeuclid_lda_cv
+from epochlens.decoding import ChanceReport, logeuclid_lda_cv, logeuclid_mdm_cv
+from epochlens.discriminability import peak_map
 from epochlens.explorer.mathnotes import html_block
 from epochlens.explorer.summary import facts_line
 from epochlens.explorer.style import (
@@ -34,7 +36,7 @@ from epochlens.explorer.style import (
     zabs_cmap,
 )
 from epochlens.ranking import prepare_ranking, session_channel_votes, top_channels
-from epochlens.riemann import embed_mds, pairwise_distances, session_whiten, trial_covariances
+from epochlens.riemann import embed_mds, mds_stress, pairwise_distances, session_whiten, trial_covariances
 from epochlens.topo import can_draw_scalp, interpolate_topo, located_mask
 from epochlens.waveforms import class_mean_sem
 
@@ -49,14 +51,23 @@ DECODE_NOTE = (
 )
 
 
-def _png(fig) -> str:
+def _png_bytes(fig) -> bytes:
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=DPI, bbox_inches="tight", facecolor=PAPER)
     fig.clf()
     import matplotlib.pyplot as plt
 
     plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    return buf.getvalue()
+
+
+def _png(fig) -> str:
+    return base64.b64encode(_png_bytes(fig)).decode("ascii")
+
+
+def _slug(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return slug or "figure"
 
 
 def _class_color(key, index: int) -> str:
@@ -436,7 +447,7 @@ def _ranking_table(ch_names, scores, picks, bad, *, labeled: bool = False) -> st
     n_bad = int(np.sum(bad))
     if n_bad:
         names = ", ".join(ch_names[i] for i in np.flatnonzero(bad))
-        rows.append(f"<p class=\"sub\">Excluded bad channels: {names}</p>")
+        rows.append(f"<p class=\"sub\">Flagged channels: {names}</p>")
     n_finite = int(np.sum(np.isfinite(vis) & ~np.asarray(bad, dtype=bool)))
     note = "Waveforms, CWT, and spectra use the top-k visualization subset."
     if labeled:
@@ -447,12 +458,33 @@ def _ranking_table(ch_names, scores, picks, bad, *, labeled: bool = False) -> st
     return "\n".join(rows)
 
 
-def _folds_figure(report):
+def _folds_figure(report: ChanceReport, mdm: ChanceReport | None = None):
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(6.4, 2.7), layout="constrained")
     x = np.arange(1, report.fold_scores.size + 1)
-    ax.bar(x, 100.0 * report.fold_scores, color=CLASS_PALETTE[0], width=0.68, linewidth=0)
+    ymax = float(report.fold_scores.max())
+    if mdm is None:
+        ax.bar(x, 100.0 * report.fold_scores, color=CLASS_PALETTE[0], width=0.68, linewidth=0)
+    else:
+        w = 0.36
+        ax.bar(
+            x - w / 2,
+            100.0 * report.fold_scores,
+            width=w,
+            color=CLASS_PALETTE[0],
+            linewidth=0,
+            label="LDA",
+        )
+        ax.bar(
+            x + w / 2,
+            100.0 * mdm.fold_scores,
+            width=w,
+            color=CLASS_PALETTE[1],
+            linewidth=0,
+            label="MDM",
+        )
+        ymax = max(ymax, float(mdm.fold_scores.max()))
     ax.axhline(
         100.0 * report.chance,
         color=PICK,
@@ -460,16 +492,58 @@ def _folds_figure(report):
         lw=1.15,
         label=f"chance {100 * report.chance:.0f}%",
     )
-    ax.set_ylim(0, max(100.0, 100.0 * report.fold_scores.max() + 8))
+    ax.set_ylim(0, max(100.0, 100.0 * ymax + 8))
     ax.set_xticks(x)
     ax.set_xlabel("Fold")
     ax.set_ylabel("Accuracy (%)")
-    ax.legend(
-        fontsize=8,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        frameon=False,
+    ax.legend(fontsize=8, loc="lower right", frameon=False)
+    return fig
+
+
+def _class_band_topo_figure(xy, class_means, band_names, class_names, classes):
+    """One row per class, one column per band; each band scaled independently."""
+    import matplotlib.pyplot as plt
+
+    class_means = np.asarray(class_means, dtype=np.float64)
+    n_cls = class_means.shape[0]
+    n_bands = len(band_names)
+    fig, axes = plt.subplots(
+        n_cls,
+        n_bands,
+        figsize=(3.0 * n_bands, 2.85 * n_cls),
+        squeeze=False,
+        layout="constrained",
     )
+    ok = located_mask(xy)
+    for r, cls in enumerate(classes):
+        for c, bname in enumerate(band_names):
+            ax = axes[r][c]
+            Xi, Yi, Zi = interpolate_topo(xy, class_means[r, :, c])
+            vmax = max(float(np.nanpercentile(np.abs(Zi), 98)), 1e-9)
+            im = ax.pcolormesh(
+                Xi, Yi, Zi, shading="auto", cmap=power_cmap(), vmin=0, vmax=vmax, zorder=2
+            )
+            _clip_topo(im, ax, xy)
+            ax.scatter(
+                xy[ok, 0],
+                xy[ok, 1],
+                c="#f3eee4",
+                s=14,
+                edgecolors=INK,
+                linewidths=0.5,
+                zorder=6,
+            )
+            _head_outline(ax, xy)
+            ax.set_aspect("equal")
+            ax.axis("off")
+            cls_name = _class_label(cls, class_names)
+            if c == 0:
+                ax.set_title(f"{cls_name}\n{bname}", fontsize=10)
+            else:
+                ax.set_title(bname, fontsize=10)
+            cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03, shrink=0.82)
+            cbar.ax.tick_params(labelsize=6)
+            cbar.set_label("")
     return fig
 
 
@@ -641,6 +715,338 @@ def _figure_block(title: str, b64: str, caption: str, math_key: str | None = Non
     )
 
 
+def _build_report_sections(
+    batch: EpochBatch,
+    *,
+    window: tuple[float, float],
+    baseline: tuple[float, float],
+    fmin: float,
+    fmax: float,
+    voices_per_octave: int,
+    decim: int,
+    top_k: int,
+    full: bool,
+) -> tuple[
+    list[tuple[str, bytes, str, str | None]],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    ChanceReport | None,
+    ChanceReport | None,
+]:
+    """Shared matplotlib figures for HTML and the figure zip.
+
+    Returns ``(sections, scores, picks, bad, lda_chance, mdm_chance)`` where
+    each section is ``(title, png_bytes, caption, math_key)``.
+    """
+    zbatch, scores, picks, ave, disc_times, pairs, bad, pair_maps = prepare_ranking(
+        batch, window, baseline, top_k
+    )
+    k = max(int(picks.size), 1)
+    subset = batch.pick(picks) if picks.size else batch
+    zsub = zbatch.pick(picks) if picks.size else zbatch
+    means, sems = class_mean_sem(zsub)
+    mean_power, freqs, cwt_times = mean_cwt_power(
+        subset,
+        fmin=fmin,
+        fmax=fmax,
+        voices_per_octave=voices_per_octave,
+        decim=decim,
+        use_cache=True,
+    )
+    rel = relative_scalogram(mean_power, cwt_times, baseline)
+    energy = energy_channel_score(rel, cwt_times, window) if full else None
+    grand_bands = None
+    band_names: list[str] = []
+    power = None
+    draw_scalp = can_draw_scalp(batch.montage_xy)
+    if draw_scalp:
+        power, band_names = band_power(batch, window)
+        grand_bands = power.mean(axis=0)
+
+    sections: list[tuple[str, bytes, str, str | None]] = []
+    sections.append(
+        (
+            "Class-mean waveforms (ranked channels, baseline z-scored)",
+            _png_bytes(_traces_figure(zsub.times, means, sems, batch.class_names, zsub.ch_names, window)),
+            "Look for class separation in the shaded analysis window. Traces are baseline z-scored means ± SEM (class-colored bands).",
+            "waveforms",
+        )
+    )
+    spec, spec_freqs = window_spectrum(subset, window)
+    spec_means: dict[int | None, np.ndarray] = {}
+    if batch.labels is None:
+        spec_means[None] = spec.mean(axis=0)
+    else:
+        for cls in np.unique(batch.labels):
+            spec_means[int(cls)] = spec[batch.labels == cls].mean(axis=0)
+    sections.append(
+        (
+            "Class-mean spectra in the analysis window",
+            _png_bytes(_psd_figure(spec_freqs, spec_means, batch.class_names, subset.ch_names)),
+            "Log power in the analysis window. Shared log scale keeps quiet channels from looking structured. Vertical guides mark θ, α, β, and γ.",
+            "spectra",
+        )
+    )
+    sections.append(
+        (
+            "Relative CWT scalograms (ranked channels)",
+            _png_bytes(_scalogram_figure(rel, cwt_times, freqs, subset.ch_names, window, max_channels=k)),
+            "Relative power versus the baseline window (diverging scale; 0 = baseline). Dashed lines mark the analysis window.",
+            "cwt",
+        )
+    )
+    if full and batch.labels is not None and picks.size:
+        show_n = min(4, subset.n_channels)
+        rel_by_class, ct, cf, class_ch_names = class_relative_scalograms(
+            subset,
+            baseline,
+            show_n=show_n,
+            fmin=fmin,
+            fmax=fmax,
+            voices_per_octave=voices_per_octave,
+            decim=decim,
+            use_cache=True,
+        )
+        sections.append(
+            (
+                "Per-class relative CWT",
+                _png_bytes(
+                    _class_scalogram_figure(
+                        rel_by_class,
+                        ct,
+                        cf,
+                        class_ch_names,
+                        batch.class_names,
+                        window,
+                    )
+                ),
+                "Per-class relative power versus the baseline window. "
+                "Each column is a class. Look for time–frequency structure that is not shared across columns.",
+                "cwt",
+            )
+        )
+    if full and energy is not None:
+        sections.append(
+            (
+                "CWT energy score on ranked channels",
+                _png_bytes(_stem_figure(energy, subset.ch_names)),
+                "Per-channel energy of the relative scalogram in the analysis window.",
+                "cwt_energy",
+            )
+        )
+    if grand_bands is not None and draw_scalp:
+        sections.append(
+            (
+                "Band-power topography",
+                _png_bytes(_band_topo_figure(batch.montage_xy, grand_bands, band_names)),
+                "Mean band power on the scalp. Each map is scaled independently so spatial structure stays visible; nose at the top.",
+                "scalp",
+            )
+        )
+        if batch.labels is not None and power is not None:
+            class_means, classes = class_mean_band_power(power, batch.labels)
+            sections.append(
+                (
+                    "Class-mean band power topography",
+                    _png_bytes(
+                        _class_band_topo_figure(
+                            batch.montage_xy,
+                            class_means,
+                            band_names,
+                            batch.class_names,
+                            classes,
+                        )
+                    ),
+                    "Class-mean band power on the scalp. Each band is scaled independently "
+                    "so spatial structure stays visible; nose at the top.",
+                    "scalp",
+                )
+            )
+
+    chance: ChanceReport | None = None
+    mdm_chance: ChanceReport | None = None
+    if batch.labels is not None and ave is not None and disc_times is not None:
+        pair_txt = ", ".join(
+            f"{_class_label(a, batch.class_names)} vs {_class_label(b, batch.class_names)}"
+            for a, b in pairs
+        )
+        show = top_channels(scores, min(24, scores.size))
+        pair_labels = [
+            f"{_class_label(a, batch.class_names)} vs {_class_label(b, batch.class_names)}"
+            for a, b in pairs
+        ]
+        ave_peak = np.array(ave, copy=True)
+        ave_peak[bad] = np.nan
+        peak_t, peak_ch, _ = peak_map(ave_peak, disc_times)
+        peak_cap = (
+            f" Peak mean |z| at {peak_t:.3f} s on {batch.ch_names[peak_ch]}."
+        )
+        if pair_maps is not None:
+            sections.append(
+                (
+                    f"Pairwise discriminability maps ({pair_txt})",
+                    _png_bytes(
+                        _pairwise_maps_figure(
+                            pair_maps[:, show, :],
+                            disc_times,
+                            [batch.ch_names[i] for i in show],
+                            pair_labels,
+                        )
+                    ),
+                    "One panel per class pair: Mann–Whitney U converted to |z| (README shorthand Wilcoxon). "
+                    "Time is on the x-axis. Ranking uses the mean across pairs."
+                    + peak_cap,
+                    "disc",
+                )
+            )
+        sections.append(
+            (
+                "Discriminability channel score",
+                _png_bytes(
+                    _stem_figure(
+                        np.nan_to_num(scores, neginf=0.0),
+                        batch.ch_names,
+                        picks=picks,
+                    )
+                ),
+                "Mean pairwise |z| used to pick the visualization subset for waveforms / CWT / spectra "
+                "(highlighted bars). MDS uses the full montage."
+                + peak_cap,
+                "ranking",
+            )
+        )
+        votes = session_channel_votes(batch, window, baseline, top_k)
+        if votes is not None:
+            sections.append(
+                (
+                    "Session votes for the visualization subset",
+                    _png_bytes(_stem_figure(votes.astype(float), batch.ch_names)),
+                    "How often each channel is in the top-k when ranking is computed per session. Sessions are not subjects.",
+                    "ranking",
+                )
+            )
+        if full and draw_scalp:
+            vis_scores = np.nan_to_num(scores, neginf=0.0)
+            sections.append(
+                (
+                    "Discriminability topography",
+                    _png_bytes(_topo_figure(batch.montage_xy, vis_scores, highlight=picks)),
+                    "Same discriminability score on the scalp. Circled sensors are in the visualization subset.",
+                    "disc",
+                )
+            )
+
+        covs = trial_covariances(batch, window)
+        dist0 = pairwise_distances(covs, metric="logeuclid")
+        xy0 = embed_mds(dist0)
+        stress0 = mds_stress(dist0, xy0)
+        sections.append(
+            (
+                "Log-Euclidean MDS of trial covariances",
+                _png_bytes(_mds_figure(xy0, batch.labels, batch.sessions, batch.class_names)),
+                "Full-montage trial covariance embeddings (all channels). Color is class; marker is session. "
+                f"Kruskal stress-1: {stress0:.3f}.",
+                "mds",
+            )
+        )
+        n_ses = 0 if batch.sessions is None else int(np.unique(batch.sessions).size)
+        if n_ses >= 2:
+            whitened = session_whiten(covs, batch.sessions, metric="logeuclid")
+            dist1 = pairwise_distances(whitened, metric="logeuclid")
+            xy1 = embed_mds(dist1)
+            stress1 = mds_stress(dist1, xy1)
+            sections.append(
+                (
+                    "Session-whitened MDS",
+                    _png_bytes(_mds_figure(xy1, batch.labels, batch.sessions, batch.class_names)),
+                    "Same full-montage embedding after per-session log-Euclidean whitening. "
+                    f"Kruskal stress-1: {stress1:.3f}.",
+                    "mds",
+                )
+            )
+        if full:
+            dist_r = pairwise_distances(covs, metric="riemann")
+            xy_r = embed_mds(dist_r)
+            stress_r = mds_stress(dist_r, xy_r)
+            sections.append(
+                (
+                    "Affine-invariant Riemannian MDS",
+                    _png_bytes(_mds_figure(xy_r, batch.labels, batch.sessions, batch.class_names)),
+                    "Same full-montage embedding with the SPD geodesic (slower). "
+                    f"Kruskal stress-1: {stress_r:.3f}.",
+                    "mds",
+                )
+            )
+            if n_ses >= 2:
+                whitened_r = session_whiten(covs, batch.sessions, metric="riemann")
+                dist_rw = pairwise_distances(whitened_r, metric="riemann")
+                xy_rw = embed_mds(dist_rw)
+                stress_rw = mds_stress(dist_rw, xy_rw)
+                sections.append(
+                    (
+                        "Session-whitened affine-invariant MDS",
+                        _png_bytes(_mds_figure(xy_rw, batch.labels, batch.sessions, batch.class_names)),
+                        "Affine-invariant embedding after per-session Riemannian whitening. "
+                        f"Kruskal stress-1: {stress_rw:.3f}.",
+                        "mds",
+                    )
+                )
+        try:
+            chance = logeuclid_lda_cv(batch, window, covs=covs)
+            mdm_chance = logeuclid_mdm_cv(batch, window, covs=covs)
+            acc = f"{100 * chance.accuracy:.1f}%"
+            mdm_acc = f"{100 * mdm_chance.accuracy:.1f}%"
+            ch = f"{100 * chance.chance:.0f}%"
+            maj = f"{100 * chance.majority:.0f}%"
+            sections.append(
+                (
+                    "Sanity check versus chance",
+                    _png_bytes(_folds_figure(chance, mdm_chance)),
+                    f"{chance.n_classes}-class {chance.method} on the full montage (all channels) is {acc} "
+                    f"(MDM {mdm_acc}; chance {ch}; majority {maj}). Ranked-channel selection is not used. "
+                    "A sanity check versus chance, not a classifier and not a BCI.",
+                    "chance",
+                )
+            )
+        except ValueError:
+            chance = None
+            mdm_chance = None
+
+    return sections, scores, picks, bad, chance, mdm_chance
+
+
+def report_pngs(
+    batch: EpochBatch,
+    *,
+    window: tuple[float, float],
+    baseline: tuple[float, float],
+    fmin: float = 4.0,
+    fmax: float = 40.0,
+    voices_per_octave: int = 12,
+    decim: int = 2,
+    top_k: int = 8,
+    full: bool = False,
+) -> list[tuple[str, bytes]]:
+    """(filename, png_bytes) for the same figures the HTML snapshot shows, in the same order."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    apply_matplotlib_rc()
+    sections, *_rest = _build_report_sections(
+        batch,
+        window=window,
+        baseline=baseline,
+        fmin=fmin,
+        fmax=fmax,
+        voices_per_octave=voices_per_octave,
+        decim=decim,
+        top_k=top_k,
+        full=full,
+    )
+    return [(_slug(title) + ".png", data) for title, data, _cap, _key in sections]
+
+
 def render_report(
     batch: EpochBatch,
     *,
@@ -664,229 +1070,17 @@ def render_report(
     matplotlib.use("Agg")
     apply_matplotlib_rc()
 
-    zbatch, scores, picks, ave, disc_times, pairs, bad, pair_maps = prepare_ranking(
-        batch, window, baseline, top_k
-    )
-    k = max(int(picks.size), 1)
-    subset = batch.pick(picks) if picks.size else batch
-    zsub = zbatch.pick(picks) if picks.size else zbatch
-    means, sems = class_mean_sem(zsub)
-    mean_power, freqs, cwt_times = mean_cwt_power(
-        subset,
+    sections, scores, picks, bad, chance, mdm_chance = _build_report_sections(
+        batch,
+        window=window,
+        baseline=baseline,
         fmin=fmin,
         fmax=fmax,
         voices_per_octave=voices_per_octave,
         decim=decim,
-        use_cache=True,
+        top_k=top_k,
+        full=full,
     )
-    rel = relative_scalogram(mean_power, cwt_times, baseline)
-    energy = energy_channel_score(rel, cwt_times, window) if full else None
-    grand_bands = None
-    band_names: list[str] = []
-    draw_scalp = can_draw_scalp(batch.montage_xy)
-    if draw_scalp:
-        power, band_names = band_power(batch, window)
-        grand_bands = power.mean(axis=0)
-
-    sections: list[tuple[str, str, str, str | None]] = []
-    sections.append(
-        (
-            "Class-mean waveforms (ranked channels, baseline z-scored)",
-            _png(_traces_figure(zsub.times, means, sems, batch.class_names, zsub.ch_names, window)),
-            "Look for class separation in the shaded analysis window. Traces are baseline z-scored means ± SEM (class-colored bands).",
-            "waveforms",
-        )
-    )
-    spec, spec_freqs = window_spectrum(subset, window)
-    spec_means: dict[int | None, np.ndarray] = {}
-    if batch.labels is None:
-        spec_means[None] = spec.mean(axis=0)
-    else:
-        for cls in np.unique(batch.labels):
-            spec_means[int(cls)] = spec[batch.labels == cls].mean(axis=0)
-    sections.append(
-        (
-            "Class-mean spectra in the analysis window",
-            _png(_psd_figure(spec_freqs, spec_means, batch.class_names, subset.ch_names)),
-            "Log power in the analysis window. Shared log scale keeps quiet channels from looking structured. Vertical guides mark θ, α, β, and γ.",
-            "spectra",
-        )
-    )
-    sections.append(
-        (
-            "Relative CWT scalograms (ranked channels)",
-            _png(_scalogram_figure(rel, cwt_times, freqs, subset.ch_names, window, max_channels=k)),
-            "Relative power versus the baseline window (diverging scale; 0 = baseline). Dashed lines mark the analysis window.",
-            "cwt",
-        )
-    )
-    if full and batch.labels is not None and picks.size:
-        show_n = min(4, subset.n_channels)
-        rel_by_class, ct, cf, class_ch_names = class_relative_scalograms(
-            subset,
-            baseline,
-            show_n=show_n,
-            fmin=fmin,
-            fmax=fmax,
-            voices_per_octave=voices_per_octave,
-            decim=decim,
-            use_cache=True,
-        )
-        sections.append(
-            (
-                "Per-class relative CWT",
-                _png(
-                    _class_scalogram_figure(
-                        rel_by_class,
-                        ct,
-                        cf,
-                        class_ch_names,
-                        batch.class_names,
-                        window,
-                    )
-                ),
-                "Per-class relative power versus the baseline window. "
-                "Each column is a class. Look for time–frequency structure that is not shared across columns.",
-                "cwt",
-            )
-        )
-    if full and energy is not None:
-        sections.append(
-            (
-                "CWT energy score on ranked channels",
-                _png(_stem_figure(energy, subset.ch_names)),
-                "Per-channel energy of the relative scalogram in the analysis window.",
-                "cwt_energy",
-            )
-        )
-    if grand_bands is not None and draw_scalp:
-        sections.append(
-            (
-                "Band-power topography",
-                _png(_band_topo_figure(batch.montage_xy, grand_bands, band_names)),
-                "Mean band power on the scalp. Each map is scaled independently so spatial structure stays visible; nose at the top.",
-                "scalp",
-            )
-        )
-
-    chance = None
-    if batch.labels is not None and ave is not None and disc_times is not None:
-        pair_txt = ", ".join(
-            f"{_class_label(a, batch.class_names)} vs {_class_label(b, batch.class_names)}"
-            for a, b in pairs
-        )
-        show = top_channels(scores, min(24, scores.size))
-        pair_labels = [
-            f"{_class_label(a, batch.class_names)} vs {_class_label(b, batch.class_names)}"
-            for a, b in pairs
-        ]
-        if pair_maps is not None:
-            sections.append(
-                (
-                    f"Pairwise discriminability maps ({pair_txt})",
-                    _png(_pairwise_maps_figure(pair_maps[:, show, :], disc_times, [batch.ch_names[i] for i in show], pair_labels)),
-                    "One panel per class pair: Mann–Whitney U converted to |z| (README shorthand Wilcoxon). "
-                    "Time is on the x-axis. Ranking uses the mean across pairs.",
-                    "disc",
-                )
-            )
-        sections.append(
-            (
-                "Discriminability channel score",
-                _png(
-                    _stem_figure(
-                        np.nan_to_num(scores, neginf=0.0),
-                        batch.ch_names,
-                        picks=picks,
-                    )
-                ),
-                "Mean pairwise |z| used to pick the visualization subset for waveforms / CWT / spectra (highlighted bars). MDS uses the full montage.",
-                "ranking",
-            )
-        )
-        votes = session_channel_votes(batch, window, baseline, top_k)
-        if votes is not None:
-            sections.append(
-                (
-                    "Session votes for the visualization subset",
-                    _png(_stem_figure(votes.astype(float), batch.ch_names)),
-                    "How often each channel is in the top-k when ranking is computed per session. Sessions are not subjects.",
-                    "ranking",
-                )
-            )
-        if full and draw_scalp:
-            vis_scores = np.nan_to_num(scores, neginf=0.0)
-            sections.append(
-                (
-                    "Discriminability topography",
-                    _png(_topo_figure(batch.montage_xy, vis_scores, highlight=picks)),
-                    "Same discriminability score on the scalp. Circled sensors are in the visualization subset.",
-                    "disc",
-                )
-            )
-
-        covs = trial_covariances(batch, window)
-        xy0 = embed_mds(pairwise_distances(covs, metric="logeuclid"))
-        sections.append(
-            (
-                "Log-Euclidean MDS of trial covariances",
-                _png(_mds_figure(xy0, batch.labels, batch.sessions, batch.class_names)),
-                "Full-montage trial covariance embeddings (all channels). Color is class; marker is session. Look for class clusters versus session grouping.",
-                "mds",
-            )
-        )
-        n_ses = 0 if batch.sessions is None else int(np.unique(batch.sessions).size)
-        if n_ses >= 2:
-            xy1 = embed_mds(
-                pairwise_distances(session_whiten(covs, batch.sessions, metric="logeuclid"), metric="logeuclid")
-            )
-            sections.append(
-                (
-                    "Session-whitened MDS",
-                    _png(_mds_figure(xy1, batch.labels, batch.sessions, batch.class_names)),
-                    "Same full-montage embedding after per-session log-Euclidean whitening. Session structure should recede if class geometry remains.",
-                    "mds",
-                )
-            )
-        if full:
-            xy_r = embed_mds(pairwise_distances(covs, metric="riemann"))
-            sections.append(
-                (
-                    "Affine-invariant Riemannian MDS",
-                    _png(_mds_figure(xy_r, batch.labels, batch.sessions, batch.class_names)),
-                    "Same full-montage embedding with the SPD geodesic (slower). Compare class clusters to the log-Euclidean plot.",
-                    "mds",
-                )
-            )
-            if n_ses >= 2:
-                xy_rw = embed_mds(
-                    pairwise_distances(session_whiten(covs, batch.sessions, metric="riemann"), metric="riemann")
-                )
-                sections.append(
-                    (
-                        "Session-whitened affine-invariant MDS",
-                        _png(_mds_figure(xy_rw, batch.labels, batch.sessions, batch.class_names)),
-                        "Affine-invariant embedding after per-session Riemannian whitening.",
-                        "mds",
-                    )
-                )
-        try:
-            chance = logeuclid_lda_cv(batch, window)
-            acc = f"{100 * chance.accuracy:.1f}%"
-            ch = f"{100 * chance.chance:.0f}%"
-            maj = f"{100 * chance.majority:.0f}%"
-            sections.append(
-                (
-                    "Sanity check versus chance",
-                    _png(_folds_figure(chance)),
-                    f"{chance.n_classes}-class {chance.method} on the full montage (all channels) is {acc} "
-                    f"(chance {ch}; majority {maj}). Ranked-channel selection is not used. "
-                    "A sanity check versus chance, not a classifier and not a BCI.",
-                    "chance",
-                )
-            )
-        except ValueError:
-            chance = None
 
     n_bad = int(np.sum(bad))
     bits = [facts_line(batch)]
@@ -925,7 +1119,7 @@ def render_report(
             ],
         }
         if chance is not None:
-            payload["chance"] = {
+            chance_payload = {
                 "accuracy": chance.accuracy,
                 "chance": chance.chance,
                 "majority": chance.majority,
@@ -933,8 +1127,14 @@ def render_report(
                 "n_splits": chance.n_splits,
                 "method": chance.method,
             }
+            if mdm_chance is not None:
+                chance_payload["mdm_accuracy"] = mdm_chance.accuracy
+            payload["chance"] = chance_payload
         sidecar.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    body = "\n".join(_figure_block(title, b64, caption, key) for title, b64, caption, key in sections)
+    body = "\n".join(
+        _figure_block(title, base64.b64encode(data).decode("ascii"), caption, key)
+        for title, data, caption, key in sections
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
