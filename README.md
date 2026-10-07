@@ -2,7 +2,21 @@
 
 First-look figures for **labeled EEG epochs**.
 
-Algorithms take generic epochs `(trials × channels × time)`. Class names come from the file (song A vs B, left vs right, anything you epoch). The core does not know about named public datasets.
+![EpochLens Streamlit explorer clicking through Overview, Waveforms, Time–frequency, Scalp, Discriminability, Ranking, MDS, and vs chance](docs/media/epochlens.gif)
+
+*Streamlit explorer on the built-in demo data (synthetic 1/f plus a planted class rhythm, not a real recording).*
+
+## Quick start
+
+Python 3.10+. From the repo root:
+
+```text
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[all]"
+.\.venv\Scripts\python.exe -m epochlens.explorer
+```
+
+That opens the explorer on dummy data. Details below under Install and Explorer.
 
 ## Goal
 
@@ -66,7 +80,7 @@ Any already-epoched experiment (music listening, motor imagery, ERP, speech, …
 
 Class labels come from MNE `event_id` or the NPZ sidecar. Epoch in MNE first if you have continuous recordings. EpochLens does not cut raw data.
 
-Optional static HTML snapshot or figure zip (also **Export** in the Streamlit sidebar — Build HTML snapshot or Build figure zip):
+Optional static HTML snapshot or figure zip (also **Export** in the Streamlit sidebar: Build HTML snapshot or Build figure zip):
 
 ```text
 .\.venv\Scripts\python.exe -m epochlens.explorer --html --out report.html --open
